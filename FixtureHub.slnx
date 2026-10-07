@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FixtureHub.Api/FixtureHub.Api.csproj" />
+    <Project Path="src/FixtureHub.Application/FixtureHub.Application.csproj" />
+    <Project Path="src/FixtureHub.Domain/FixtureHub.Domain.csproj" />
+    <Project Path="src/FixtureHub.Infrastructure/FixtureHub.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FixtureHub.UnitTests/FixtureHub.UnitTests.csproj" />
+  </Folder>
+</Solution>
