@@ -48,12 +48,15 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
     └──────cancel────────┴──────▶ Cancelled
 ```
 
-- Los **goles se registran en vivo**, solo con el partido en `InProgress`. Cada gol guarda jugador, minuto y si es autogol.
-- Un **autogol** suma al equipo rival del jugador.
-- El **marcador se calcula a partir de los goles**, así que no puede contradecirlos.
-- Un gol puede **anularse** mientras el partido sigue en curso.
+- Los **goles se registran en vivo**, solo con el partido en `InProgress`. Cada gol guarda jugador, minuto (de 1 a 120, para cubrir la prórroga) y si es autogol.
+- El jugador debe pertenecer a uno de los dos equipos del partido; si no, la petición se rechaza con 400.
+- Un **autogol** suma al equipo rival del jugador. El gol guarda quién lo hizo y a qué equipo suma.
+- El **marcador se calcula a partir de los goles** y se guarda en el partido para leerlo sin recalcular. Solo cambia al registrar, anular o corregir goles, así que no puede contradecirlos.
+- Un gol puede **anularse** mientras el partido sigue en curso. Anular un gol que ya estaba anulado no es un error.
 - Al **finalizar**, los goles quedan fijos. Intentar modificarlos devuelve 409.
-- Una **corrección posterior** usa un endpoint aparte que exige un motivo y deja un historial con el marcador anterior y el nuevo.
+- Una **corrección posterior** (`PUT /matches/{id}/result`) recibe la lista completa de goles y un motivo obligatorio. Los goles anteriores quedan anulados, no se borran, y se guarda un historial con el marcador anterior, el nuevo y el motivo. Si la lista enviada es igual a la actual, no cambia nada: el PUT es idempotente.
+- Solo se puede **reprogramar** un partido `Scheduled`.
+- Solo se puede **eliminar** un partido `Scheduled` o `Cancelled`. Uno en curso o finalizado forma parte del historial del torneo (409).
 
 ## API
 
@@ -75,7 +78,7 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 
 ## Eventos de dominio
 
-`TeamCreated`, `MatchStarted`, `GoalScored`, `GoalAnnulled`, `MatchFinished` y `MatchResultCorrected`.
+`TeamCreated`, `MatchStarted`, `GoalScored`, `GoalAnnulled`, `MatchFinished`, `MatchCancelled` y `MatchResultCorrected`. Cada cambio de estado del partido genera su propio evento.
 
 Las entidades acumulan sus eventos y el Unit of Work los despacha al confirmar la transacción. Cada evento se registra en la tabla `DomainEvents` y se loggea con el TraceId del request que lo originó.
 
