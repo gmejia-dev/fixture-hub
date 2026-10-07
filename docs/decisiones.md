@@ -12,6 +12,16 @@ Supuestos y decisiones tomadas donde el enunciado deja margen de interpretación
 | **Handlers propios para CQRS** (sin MediatR) | Pocas necesidades: enviar un command o una query a su handler. MediatR requiere licencia desde la v13. Las interfaces son propias de Application, así que la decisión es reversible sin tocar los handlers. |
 | **Warnings como errores** | El código no compila con advertencias pendientes. |
 
+## Convenciones de nombres
+
+| Decisión | Motivo |
+|---|---|
+| **PascalCase en el código y en los tests** | Es la convención oficial de C# para tipos, métodos y propiedades. Los tests siguen el formato `Método_Escenario_Resultado` (cada segmento en PascalCase), para que el nombre del test diga qué se rompió cuando falla. |
+| **kebab-case en las rutas de los endpoints** (`/api/top-scorers`) | Es la convención recomendada por las guías de APIs REST de Google, Microsoft y Zalando, y la más usada en APIs públicas. Se prefirió a snake_case porque el guion bajo queda oculto cuando una URL se muestra subrayada como enlace. |
+| **camelCase en los parámetros de query y en el JSON** | Los parámetros de paginación (`pageNumber`, `pageSize`, `sortBy`, `sortDirection`) vienen definidos así en el enunciado, y camelCase es el formato JSON por defecto de ASP.NET Core. |
+
+El detalle completo está en la [guía de contribución](../CONTRIBUTING.md#convenciones-de-nombres).
+
 ## Alcance
 
 | Decisión | Motivo |
@@ -49,6 +59,7 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 
 | Tema | Decisión |
 |---|---|
+| Rutas | kebab-case y recursos en plural (`/api/teams`, `/api/top-scorers`). Ver [convenciones de nombres](#convenciones-de-nombres). |
 | Idempotencia | `Idempotency-Key` obligatorio en todo POST. Sin el header → 400. Misma clave con otro body → 409. Misma clave mientras la primera sigue en curso → 409. Repetición idéntica → se devuelve la respuesta original. Las claves expiran a las 24 horas y se guardan en la misma transacción del Unit of Work. |
 | DELETE | Idempotente: 204 aunque el recurso ya estuviera eliminado; 404 si nunca existió. |
 | Errores | ProblemDetails (RFC 9457) con `errorCode`, `traceId` y `metadata` (diccionario de datos adicionales para el frontend). Nunca incluye datos sensibles. |

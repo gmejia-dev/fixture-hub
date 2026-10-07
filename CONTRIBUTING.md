@@ -48,6 +48,25 @@ Equivalencia con [Conventional Commits](https://www.conventionalcommits.org/):
 | `IMP` | `refactor`, `perf` |
 | `META` | `chore`, `docs`, `ci`, `build` |
 
+## Convenciones de nombres
+
+El código y los tests usan **PascalCase**, siguiendo las [convenciones de C#](https://learn.microsoft.com/dotnet/csharp/fundamentals/coding-style/identifier-names). Las **rutas de los endpoints** usan **kebab-case**. El motivo de cada decisión está en [docs/decisiones.md](docs/decisiones.md#convenciones-de-nombres).
+
+| Elemento | Convención | Ejemplo |
+|---|---|---|
+| Clases, records, enums, interfaces | PascalCase (interfaces con `I`) | `Result`, `ErrorType`, `IUnitOfWork` |
+| Métodos y propiedades | PascalCase | `AddGoal()`, `IsSuccess` |
+| Constantes y `static readonly` | PascalCase | `Error.None` |
+| Parámetros y variables locales | camelCase | `matchId`, `result` |
+| Campos privados | `_camelCase` | `_value` |
+| Tests | `Método_Escenario_Resultado` | `Failure_WithErrorNone_ThrowsArgumentException` |
+| Códigos de error | `Entidad.Motivo` | `Match.NotInProgress` |
+| Tablas y columnas en SQL Server | PascalCase | `Teams`, `GoalDifference` |
+| **Rutas de endpoints** | **minúsculas, palabras separadas con guion (kebab-case)** | `/api/teams`, `/api/top-scorers`, `/api/matches/{id}/goals` |
+| Parámetros de query | camelCase (los que fija el enunciado) | `?pageNumber=1&pageSize=10&sortBy=name` |
+| Propiedades JSON | camelCase (por defecto en ASP.NET Core) | `totalRecords` |
+| Ramas y carpetas del repositorio | kebab-case | `feature/solucion-dominio` |
+
 ## Pull requests
 
 - Título con el mismo formato de los commits. Al hacer squash, ese título queda como el commit en `main`.
