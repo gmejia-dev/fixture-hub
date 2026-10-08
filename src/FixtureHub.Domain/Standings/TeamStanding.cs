@@ -16,6 +16,18 @@ public sealed class TeamStanding : AggregateRoot
 
     public int Played { get; private set; }
 
+    public int Won { get; private set; }
+
+    public int Drawn { get; private set; }
+
+    public int Lost { get; private set; }
+
+    public int GoalsFor { get; private set; }
+
+    public int GoalsAgainst { get; private set; }
+
+    public int GoalDifference { get; private set; }
+
     public int Points { get; private set; }
 
     public static TeamStanding Create(Guid teamId) => new(teamId);
@@ -23,10 +35,17 @@ public sealed class TeamStanding : AggregateRoot
     public void RecordResult(int goalsFor, int goalsAgainst)
     {
         Played++;
+        GoalsFor += goalsFor;
+        GoalsAgainst += goalsAgainst;
 
         if (goalsFor > goalsAgainst)
-            Points += PointsPerWin;
+            Won++;
         else if (goalsFor == goalsAgainst)
-            Points += PointsPerDraw;
+            Drawn++;
+        else
+            Lost++;
+
+        GoalDifference = GoalsFor - GoalsAgainst;
+        Points = (Won * PointsPerWin) + (Drawn * PointsPerDraw);
     }
 }
