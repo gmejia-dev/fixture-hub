@@ -59,4 +59,35 @@ public class TeamStandingTests
         Assert.Equal(goalsAgainst, standing.GoalsAgainst);
         Assert.Equal(expectedDifference, standing.GoalDifference);
     }
+
+    [Fact]
+    public void RecordResult_SeveralMatches_AccumulatesEverything()
+    {
+        var standing = TeamStanding.Create(TeamId);
+
+        standing.RecordResult(3, 1);
+        standing.RecordResult(2, 2);
+        standing.RecordResult(0, 1);
+
+        Assert.Equal(3, standing.Played);
+        Assert.Equal((1, 1, 1), (standing.Won, standing.Drawn, standing.Lost));
+        Assert.Equal((5, 4, 1), (standing.GoalsFor, standing.GoalsAgainst, standing.GoalDifference));
+        Assert.Equal(4, standing.Points);
+    }
+
+    [Fact]
+    public void RevertResult_RecordedResult_LeavesTheStandingAsBefore()
+    {
+        var standing = TeamStanding.Create(TeamId);
+        standing.RecordResult(2, 1);
+        standing.RecordResult(1, 1);
+        standing.RecordResult(0, 2);
+
+        standing.RevertResult(0, 2);
+
+        Assert.Equal(2, standing.Played);
+        Assert.Equal((1, 1, 0), (standing.Won, standing.Drawn, standing.Lost));
+        Assert.Equal((3, 2, 1), (standing.GoalsFor, standing.GoalsAgainst, standing.GoalDifference));
+        Assert.Equal(4, standing.Points);
+    }
 }

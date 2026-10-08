@@ -32,18 +32,22 @@ public sealed class TeamStanding : AggregateRoot
 
     public static TeamStanding Create(Guid teamId) => new(teamId);
 
-    public void RecordResult(int goalsFor, int goalsAgainst)
+    public void RecordResult(int goalsFor, int goalsAgainst) => Apply(goalsFor, goalsAgainst, direction: 1);
+
+    public void RevertResult(int goalsFor, int goalsAgainst) => Apply(goalsFor, goalsAgainst, direction: -1);
+
+    private void Apply(int goalsFor, int goalsAgainst, int direction)
     {
-        Played++;
-        GoalsFor += goalsFor;
-        GoalsAgainst += goalsAgainst;
+        Played += direction;
+        GoalsFor += direction * goalsFor;
+        GoalsAgainst += direction * goalsAgainst;
 
         if (goalsFor > goalsAgainst)
-            Won++;
+            Won += direction;
         else if (goalsFor == goalsAgainst)
-            Drawn++;
+            Drawn += direction;
         else
-            Lost++;
+            Lost += direction;
 
         GoalDifference = GoalsFor - GoalsAgainst;
         Points = (Won * PointsPerWin) + (Drawn * PointsPerDraw);
