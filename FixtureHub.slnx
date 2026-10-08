@@ -6,6 +6,7 @@
     <Project Path="src/FixtureHub.Infrastructure/FixtureHub.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/FixtureHub.ArchitectureTests/FixtureHub.ArchitectureTests.csproj" />
     <Project Path="tests/FixtureHub.UnitTests/FixtureHub.UnitTests.csproj" />
   </Folder>
 </Solution>
