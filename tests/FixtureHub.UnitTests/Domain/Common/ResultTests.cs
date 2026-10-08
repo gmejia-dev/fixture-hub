@@ -1,4 +1,4 @@
-﻿using FixtureHub.Domain.Common;
+using FixtureHub.Domain.Common;
 
 namespace FixtureHub.UnitTests.Domain.Common;
 

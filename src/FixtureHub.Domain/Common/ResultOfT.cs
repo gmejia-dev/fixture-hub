@@ -1,4 +1,4 @@
-﻿namespace FixtureHub.Domain.Common;
+namespace FixtureHub.Domain.Common;
 
 public sealed class Result<TValue> : Result
 {

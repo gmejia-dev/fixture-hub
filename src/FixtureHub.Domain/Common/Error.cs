@@ -1,4 +1,4 @@
-﻿namespace FixtureHub.Domain.Common;
+namespace FixtureHub.Domain.Common;
 
 public sealed record Error(string Code, string Message, ErrorType Type, IReadOnlyDictionary<string, object?>? Metadata = null)
 {
