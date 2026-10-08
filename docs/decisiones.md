@@ -66,6 +66,7 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 | Idempotencia | `Idempotency-Key` obligatorio en todo POST. Sin el header → 400. Misma clave con otro body → 409. Misma clave mientras la primera sigue en curso → 409. Repetición idéntica → se devuelve la respuesta original. Las claves expiran a las 24 horas y se guardan en la misma transacción del Unit of Work. |
 | DELETE | Idempotente: 204 aunque el recurso ya estuviera eliminado; 404 si nunca existió. |
 | Errores | ProblemDetails (RFC 9457) con `errorCode`, `traceId` y `metadata` (diccionario de datos adicionales para el frontend). Nunca incluye datos sensibles. |
+| Idiomas | La API devuelve códigos, nunca texto traducido: `errorCode` y `metadata` en cada error, y un código por campo en los errores de validación (`"errors": { "name": ["Team.NameRequired"] }`). Todo valor que cambia dentro de un mensaje viaja en `metadata`, para que el frontend pueda armar la frase en cualquier idioma. El frontend traduce con sus catálogos en español e inglés, y un test verifica que cada código tenga su traducción. `detail` queda en español como descripción para quien consume la API directo (Swagger, Postman). |
 | Paginación | Todos los GET aceptan `pageNumber`, `pageSize` (máximo 100), `sortBy`, `sortDirection` y filtros por entidad. |
 | Ordenamiento | `sortBy` se valida contra una lista blanca de columnas para evitar inyección SQL. |
 
