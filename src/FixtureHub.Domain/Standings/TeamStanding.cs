@@ -34,10 +34,26 @@ public sealed class TeamStanding : AggregateRoot
 
     public void RecordResult(int goalsFor, int goalsAgainst) => Apply(goalsFor, goalsAgainst, direction: 1);
 
-    public void RevertResult(int goalsFor, int goalsAgainst) => Apply(goalsFor, goalsAgainst, direction: -1);
+    public void RevertResult(int goalsFor, int goalsAgainst)
+    {
+        var recordedOutcomes = goalsFor.CompareTo(goalsAgainst) switch
+        {
+            > 0 => Won,
+            0 => Drawn,
+            _ => Lost
+        };
+
+        if (recordedOutcomes == 0)
+            throw new InvalidOperationException("No hay un resultado de ese tipo registrado para revertir.");
+
+        Apply(goalsFor, goalsAgainst, direction: -1);
+    }
 
     private void Apply(int goalsFor, int goalsAgainst, int direction)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(goalsFor);
+        ArgumentOutOfRangeException.ThrowIfNegative(goalsAgainst);
+
         Played += direction;
         GoalsFor += direction * goalsFor;
         GoalsAgainst += direction * goalsAgainst;

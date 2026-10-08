@@ -90,4 +90,25 @@ public class TeamStandingTests
         Assert.Equal((3, 2, 1), (standing.GoalsFor, standing.GoalsAgainst, standing.GoalDifference));
         Assert.Equal(4, standing.Points);
     }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, -1)]
+    public void RecordResult_WithNegativeGoals_ThrowsArgumentOutOfRangeException(int goalsFor, int goalsAgainst)
+    {
+        var standing = TeamStanding.Create(TeamId);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => standing.RecordResult(goalsFor, goalsAgainst));
+        Assert.Equal(0, standing.Played);
+    }
+
+    [Fact]
+    public void RevertResult_OutcomeNeverRecorded_ThrowsInvalidOperationException()
+    {
+        var standing = TeamStanding.Create(TeamId);
+        standing.RecordResult(2, 0);
+
+        Assert.Throws<InvalidOperationException>(() => standing.RevertResult(1, 1));
+        Assert.Equal(1, standing.Played);
+    }
 }
