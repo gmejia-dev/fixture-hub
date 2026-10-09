@@ -22,6 +22,12 @@ public static class TeamErrors
             $"El país del equipo no puede superar {Team.CountryMaxLength} caracteres.",
             new Dictionary<string, object?> { ["maxLength"] = Team.CountryMaxLength });
 
+    public static Error NameTaken(string name) =>
+        Error.Conflict(
+            "Team.NameTaken",
+            $"Ya existe un equipo con el nombre {name}.",
+            new Dictionary<string, object?> { ["name"] = name });
+
     public static Error NotFound(Guid teamId) =>
         Error.NotFound(
             "Team.NotFound",
