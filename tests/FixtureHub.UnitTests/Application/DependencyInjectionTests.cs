@@ -1,5 +1,6 @@
 using FixtureHub.Application;
 using FixtureHub.Application.Abstractions.Events;
+using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Abstractions.Messaging;
 using FixtureHub.Application.Abstractions.Persistence;
 using FixtureHub.Application.Decorators;
@@ -19,6 +20,7 @@ public sealed class DependencyInjectionTests : IDisposable
     private readonly FakeUnitOfWork _unitOfWork = new();
     private readonly FakeTeamRepository _teams = new();
     private readonly FakeTeamStandingRepository _standings = new();
+    private readonly FakeIdempotencyStore _idempotency = new();
     private readonly ServiceProvider _provider;
 
     public DependencyInjectionTests()
@@ -29,6 +31,7 @@ public sealed class DependencyInjectionTests : IDisposable
         services.AddSingleton<ITeamRepository>(_teams);
         services.AddSingleton<IMatchRepository>(new FakeMatchRepository());
         services.AddSingleton<ITeamStandingRepository>(_standings);
+        services.AddSingleton<IIdempotencyStore>(_idempotency);
         services.AddApplication();
 
         _provider = services.BuildServiceProvider(new ServiceProviderOptions
@@ -92,6 +95,21 @@ public sealed class DependencyInjectionTests : IDisposable
         Assert.True(result.IsSuccess);
         Assert.Equal(["Begin", "Commit"], _unitOfWork.Calls);
         Assert.Single(_teams.All);
+    }
+
+    [Fact]
+    public async Task AddApplication_IdempotencyKeyInUse_IsRejectedInsideTheTransactionBeforeTheHandler()
+    {
+        _idempotency.LockAvailable = false;
+        using var scope = _provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IdempotencyContext>().Key = "clave-en-uso";
+        var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateTeamCommand, Guid>>();
+
+        var result = await handler.HandleAsync(new CreateTeamCommand("Los Halcones", "El Salvador"), CancellationToken.None);
+
+        Assert.Equal("Idempotency.RequestInProgress", result.Error.Code);
+        Assert.Equal(["Begin", "Rollback"], _unitOfWork.Calls);
+        Assert.Empty(_teams.All);
     }
 
     [Fact]

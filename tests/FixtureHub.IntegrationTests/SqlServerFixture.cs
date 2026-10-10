@@ -1,4 +1,5 @@
 using FixtureHub.Application;
+using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Abstractions.Messaging;
 using FixtureHub.Application.Abstractions.Persistence;
 using FixtureHub.Domain.Common;
@@ -56,10 +57,11 @@ public sealed class SqlServerFixture : IAsyncLifetime
             .HandleAsync(command, CancellationToken.None);
     }
 
-    public async Task<Result<TResponse>> SendAsync<TCommand, TResponse>(TCommand command)
+    public async Task<Result<TResponse>> SendAsync<TCommand, TResponse>(TCommand command, string? idempotencyKey = null)
         where TCommand : ICommand<TResponse>
     {
         await using var scope = CreateScope();
+        scope.ServiceProvider.GetRequiredService<IdempotencyContext>().Key = idempotencyKey;
 
         return await scope.ServiceProvider.GetRequiredService<ICommandHandler<TCommand, TResponse>>()
             .HandleAsync(command, CancellationToken.None);

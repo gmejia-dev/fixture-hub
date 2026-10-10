@@ -1,9 +1,11 @@
 using FixtureHub.Application.Abstractions.Events;
+using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Abstractions.Messaging;
 using FixtureHub.Application.Decorators;
 using FixtureHub.Application.Events;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace FixtureHub.Application;
 
@@ -28,7 +30,11 @@ public static class DependencyInjection
             .WithScopedLifetime());
 
         services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
+        services.AddScoped<IdempotencyContext>();
+        services.TryAddSingleton(TimeProvider.System);
 
+        services.Decorate(typeof(ICommandHandler<>), typeof(IdempotencyDecorator.CommandHandler<>));
+        services.Decorate(typeof(ICommandHandler<,>), typeof(IdempotencyDecorator.CommandHandler<,>));
         services.Decorate(typeof(ICommandHandler<>), typeof(TransactionDecorator.CommandHandler<>));
         services.Decorate(typeof(ICommandHandler<,>), typeof(TransactionDecorator.CommandHandler<,>));
         services.Decorate(typeof(ICommandHandler<>), typeof(ValidationDecorator.CommandHandler<>));

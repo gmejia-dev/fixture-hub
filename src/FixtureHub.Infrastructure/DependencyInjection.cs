@@ -1,4 +1,6 @@
+using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Abstractions.Persistence;
+using FixtureHub.Infrastructure.Idempotency;
 using FixtureHub.Infrastructure.Persistence;
 using FixtureHub.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +22,8 @@ public static class DependencyInjection
         services.AddScoped<ITeamRepository, TeamRepository>();
         services.AddScoped<IMatchRepository, MatchRepository>();
         services.AddScoped<ITeamStandingRepository, TeamStandingRepository>();
+
+        services.AddScoped<IIdempotencyStore, IdempotencyStore>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
