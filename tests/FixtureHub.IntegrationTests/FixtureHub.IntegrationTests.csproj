@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="Testcontainers.MsSql" Version="4.15.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
@@ -23,6 +24,7 @@
     <ProjectReference Include="..\..\src\FixtureHub.Domain\FixtureHub.Domain.csproj" />
     <ProjectReference Include="..\..\src\FixtureHub.Application\FixtureHub.Application.csproj" />
     <ProjectReference Include="..\..\src\FixtureHub.Infrastructure\FixtureHub.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\FixtureHub.Api\FixtureHub.Api.csproj" />
   </ItemGroup>
 
 </Project>

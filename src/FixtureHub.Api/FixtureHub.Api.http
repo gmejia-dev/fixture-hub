@@ -1,6 +1,139 @@
-@FixtureHub.Api_HostAddress = http://localhost:5065
+@host = http://localhost:5065
 
-GET {{FixtureHub.Api_HostAddress}}/weatherforecast/
+### Tabla de posiciones
+GET {{host}}/api/standings
 Accept: application/json
 
-###
+### Goleadores (los empatados comparten posición)
+GET {{host}}/api/top-scorers?pageSize=5
+
+### Equipos filtrados por nombre, ordenados y paginados
+GET {{host}}/api/teams?name=de&sortBy=playerCount&sortDirection=desc&pageNumber=1&pageSize=3
+
+### Partidos en curso
+GET {{host}}/api/matches?status=InProgress
+
+### Partidos de un rango de fechas (ISO 8601; el "+" de un offset va como %2B)
+GET {{host}}/api/matches?from=2026-10-01T00:00:00Z&to=2026-10-31T23:59:59Z&sortBy=scheduledAt&sortDirection=desc
+
+### Crear un equipo (repetir con la misma clave devuelve la misma respuesta)
+# @name createTeam
+POST {{host}}/api/teams
+Content-Type: application/json
+Idempotency-Key: crear-equipo-demo-1
+
+{
+  "name": "Jaguares de Tesorería",
+  "country": "Belice"
+}
+
+### Detalle del equipo
+GET {{host}}/api/teams/{{createTeam.response.body.$.id}}
+
+### Agregar un jugador
+# @name addPlayer
+POST {{host}}/api/teams/{{createTeam.response.body.$.id}}/players
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "name": "Ana Pérez",
+  "shirtNumber": 9
+}
+
+### Cambiar nombre y dorsal del jugador
+PUT {{host}}/api/teams/{{createTeam.response.body.$.id}}/players/{{addPlayer.response.body.$.id}}
+Content-Type: application/json
+
+{
+  "name": "Ana María Pérez",
+  "shirtNumber": 10
+}
+
+### Jugadores del equipo
+GET {{host}}/api/teams/{{createTeam.response.body.$.id}}/players?sortBy=name
+
+### Crear el rival
+# @name createRival
+POST {{host}}/api/teams
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "name": "Tucanes de Cumplimiento",
+  "country": "Belice"
+}
+
+### Programar un partido
+# @name scheduleMatch
+POST {{host}}/api/matches
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "homeTeamId": "{{createTeam.response.body.$.id}}",
+  "awayTeamId": "{{createRival.response.body.$.id}}",
+  "scheduledAt": "2026-11-07T19:00:00-06:00"
+}
+
+### Reprogramarlo
+PATCH {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}
+Content-Type: application/json
+
+{
+  "scheduledAt": "2026-11-08T19:00:00-06:00"
+}
+
+### Iniciarlo
+POST {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/start
+Idempotency-Key: {{$guid}}
+
+### Registrar un gol (reintentar con la MISMA clave no lo duplica)
+# @name registerGoal
+POST {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/goals
+Content-Type: application/json
+Idempotency-Key: gol-demo-1
+
+{
+  "playerId": "{{addPlayer.response.body.$.id}}",
+  "minute": 30,
+  "isOwnGoal": false
+}
+
+### Anular el gol
+POST {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/goals/{{registerGoal.response.body.$.id}}/annul
+Idempotency-Key: {{$guid}}
+
+### Finalizarlo (actualiza la tabla)
+POST {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/finish
+Idempotency-Key: {{$guid}}
+
+### Corregir el resultado con la lista completa de goles
+PUT {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/result
+Content-Type: application/json
+
+{
+  "goals": [
+    { "playerId": "{{addPlayer.response.body.$.id}}", "minute": 12, "isOwnGoal": false }
+  ],
+  "reason": "El acta del árbitro registra el gol en el minuto 12."
+}
+
+### Detalle del partido: goles (también los anulados) y correcciones
+GET {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}
+
+### Errores: POST sin Idempotency-Key -> 400 Idempotency.KeyRequired
+POST {{host}}/api/teams
+Content-Type: application/json
+
+{
+  "name": "Sin clave",
+  "country": "El Salvador"
+}
+
+### Errores: sortBy fuera de la lista blanca -> 400 Query.InvalidSortBy
+GET {{host}}/api/teams?sortBy=Name%3B%20DROP%20TABLE%20Teams--
+
+### Errores: el traceId del ProblemDetails es el del header traceparent
+GET {{host}}/api/teams/00000000-0000-0000-0000-000000000001
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01

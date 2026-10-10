@@ -15,4 +15,8 @@
     <ProjectReference Include="..\FixtureHub.Infrastructure\FixtureHub.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="FixtureHub.UnitTests" />
+  </ItemGroup>
+
 </Project>

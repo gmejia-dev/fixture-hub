@@ -40,6 +40,9 @@ El detalle completo está en la [guía de contribución](../CONTRIBUTING.md#conv
 | Partidos que cuentan | Solo los partidos `Finished`. |
 | Partidos inválidos | Un equipo no puede jugar contra sí mismo (400) ni tener dos partidos a la misma hora (409). "A la misma hora" es el mismo instante, comparado en UTC; los partidos cancelados no cuentan. |
 | Eliminar un equipo | No se puede si tiene partidos programados o en curso (409 `Team.HasActiveMatches`): esos partidos quedarían sin rival. Con partidos finalizados o cancelados sí se puede; quedan como historial. |
+| Equipo eliminado en los reportes | Sale de la tabla de posiciones y de los goleadores, pero sus partidos siguen en el listado de partidos, con su nombre. |
+| Posición en la tabla | Se calcula sobre todos los equipos activos y no cambia al filtrar por nombre. |
+| Goleadores | Cuentan los goles no anulados que no son autogol, de partidos en curso o finalizados (la lista se actualiza en vivo; la tabla de posiciones, solo al finalizar). Los goles de un partido cancelado no cuentan. Un jugador dado de baja conserva sus goles. Los empatados comparten posición (1, 1, 3). |
 
 ## Ciclo de vida del partido
 
@@ -68,8 +71,15 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 | DELETE | Idempotente: 204 aunque el recurso ya estuviera eliminado; 404 si nunca existió. |
 | Errores | ProblemDetails (RFC 9457) con `errorCode`, `traceId` y `metadata` (diccionario de datos adicionales para el frontend). Nunca incluye datos sensibles. |
 | Idiomas | La API devuelve códigos, nunca texto traducido: `errorCode` y `metadata` en cada error, y un código por campo en los errores de validación (`"errors": { "name": ["Team.NameRequired"] }`). Todo valor que cambia dentro de un mensaje viaja en `metadata`, para que el frontend pueda armar la frase en cualquier idioma. El frontend traduce con sus catálogos en español e inglés, y un test verifica que cada código tenga su traducción. `detail` queda en español como descripción para quien consume la API directo (Swagger, Postman). |
-| Paginación | Todos los GET aceptan `pageNumber`, `pageSize` (máximo 100), `sortBy`, `sortDirection` y filtros por entidad. |
-| Ordenamiento | `sortBy` se valida contra una lista blanca de columnas para evitar inyección SQL. |
+| Solo POST exige la clave | PUT y DELETE ya son idempotentes por definición (RFC 9110) y por diseño (DELETE 204, corrección de resultado sin cambios si la lista es igual). El PATCH de reprogramación también: fija una fecha, no la suma. |
+| Repetición visible | Una respuesta repetida lleva el header `Idempotent-Replayed: true` (como Stripe). El cuerpo y el status son los de la primera vez. |
+| Códigos HTTP | `Validation` 400, `NotFound` 404, `Conflict` 409, `Failure` 500. Un body o parámetro mal formado es 400 `Request.Malformed`; un error inesperado, 500 `Server.Unexpected` sin el mensaje de la excepción. |
+| `Location` de jugadores y goles | Apunta al agregado (`/api/teams/{teamId}`, `/api/matches/{matchId}`): jugadores y goles no existen fuera de su equipo o partido, y el detalle del agregado los incluye. |
+| `traceId` | Los 32 caracteres del trace W3C, el mismo que guarda `DomainEvents`. Si el cliente manda `traceparent`, se respeta. |
+| Paginación | Todos los listados aceptan `pageNumber` (desde 1), `pageSize` (de 1 a 100; 10 por defecto), `sortBy`, `sortDirection` (`asc` o `desc`, sin distinguir mayúsculas) y filtros por entidad. La respuesta trae `items`, `pageNumber`, `pageSize`, `totalRecords` y `totalPages`. |
+| Ordenamiento | `sortBy` se valida contra una lista blanca por recurso (400 `Query.InvalidSortBy`) y el lector lo traduce a una columna con su propio diccionario: el texto del usuario nunca llega al SQL. Siempre se agrega un desempate único para que las páginas no repitan ni salten filas. |
+| Filtros de texto | Contienen el texto, sin distinguir mayúsculas (intercalación de SQL Server). Los comodines de `LIKE` del usuario se buscan literalmente. |
+| Fechas en la query string | ISO 8601 con zona (`2026-11-07T00:00:00Z`). El `+` de un offset debe ir codificado (`%2B`); sin codificar llega como espacio. |
 
 ## Seguridad
 
@@ -83,6 +93,18 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 `TeamCreated`, `MatchStarted`, `GoalScored`, `GoalAnnulled`, `MatchFinished`, `MatchCancelled` y `MatchResultCorrected`. Cada cambio de estado del partido genera su propio evento.
 
 Las entidades acumulan sus eventos y el Unit of Work los despacha **antes de guardar**, dentro de la misma transacción: la tabla de posiciones se actualiza junto con el partido, sin consistencia eventual. Cada evento se registra en la tabla `DomainEvents` y se loggea con el TraceId del request que lo originó.
+
+## Datos de arranque
+
+| Decisión | Motivo |
+|---|---|
+| **El seed usa los commands de la API**, no `INSERT` | Respeta todas las reglas (validación, dominio, choques de horario) y arma la tabla de posiciones con los mismos eventos que en producción. Si una regla cambia, el seed no puede saltársela. |
+| **Solo con la base vacía** | Si ya hay equipos, no hace nada. Volver a iniciar la Api no duplica datos. |
+| **Migraciones y seed por configuración** (`Database:ApplyMigrations`, `Database:Seed`) | Apagados por defecto y encendidos en Development. En Docker (#6) se encienden por variables de entorno. |
+| **Fechas relativas al día de arranque** | La fecha 4 es "hoy" (un partido en curso), las fechas 1 a 3 ya se jugaron y la 5 es la próxima semana. La demo siempre muestra un torneo a mitad de camino. |
+| **LocalDB en desarrollo** | `appsettings.Development.json` usa `(localdb)\MSSQLLocalDB` con autenticación de Windows: no hay contraseña en el repositorio. Docker (#6) usará variables de entorno. |
+
+Límite conocido: si dos instancias de la Api arrancan a la vez sobre una base vacía, las dos intentan el seed y la segunda falla por el nombre único de los equipos. Con una sola instancia (el caso de la demo y de docker-compose) no ocurre; en producción el seed sería un paso de despliegue aparte.
 
 ## Extensiones futuras
 

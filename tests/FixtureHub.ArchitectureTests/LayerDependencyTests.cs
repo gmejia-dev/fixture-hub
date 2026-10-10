@@ -78,6 +78,20 @@ public class LayerDependencyTests
         AssertSuccessful(result);
     }
 
+    [Fact]
+    public void Api_DoesNotAccessTheDatabaseDirectly()
+    {
+        var result = Layer(Api)
+            .ShouldNot()
+            .HaveDependencyOnAny(
+                "Microsoft.EntityFrameworkCore",
+                "Dapper",
+                "Microsoft.Data.SqlClient")
+            .GetResult();
+
+        AssertSuccessful(result);
+    }
+
     private static Types Layer(string assemblyName)
     {
         var types = Types.InAssembly(Assembly.Load(assemblyName));

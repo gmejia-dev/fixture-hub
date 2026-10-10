@@ -12,15 +12,19 @@ public class VisibilityTests
     private const string Infrastructure = "FixtureHub.Infrastructure";
 
     [Fact]
-    public void Infrastructure_EveryTypeExceptTheRegistrationAndTheMigrations_IsInternal()
+    public void Infrastructure_EveryTypeExceptItsEntryPointsAndTheMigrations_IsInternal()
     {
         var types = Types.InAssembly(Assembly.Load(Infrastructure))
             .That()
             .DoNotResideInNamespace($"{Infrastructure}.Persistence.Migrations")
             .And()
-            .DoNotHaveName("DependencyInjection");
+            .DoNotHaveName("DependencyInjection")
+            .And()
+            .DoNotHaveName("DatabaseInitializer");
 
-        AssertSelects(types, "UnitOfWork", "FixtureHubDbContext", "TeamRepository", "IdempotencyStore");
+        AssertSelects(
+            types,
+            "UnitOfWork", "FixtureHubDbContext", "TeamRepository", "IdempotencyStore", "TeamReader", "PagedSql", "DatabaseSeeder");
         AssertSuccessful(types.Should().NotBePublic().GetResult());
     }
 
@@ -28,6 +32,7 @@ public class VisibilityTests
     [InlineData(typeof(ICommandHandler<>), "DeleteTeamHandler")]
     [InlineData(typeof(ICommandHandler<,>), "ScheduleMatchHandler")]
     [InlineData(typeof(IDomainEventHandler<>), "MatchFinishedHandler")]
+    [InlineData(typeof(IQueryHandler<,>), "GetTeamsHandler")]
     public void Application_HandlersOfTheContract_AreInternal(Type contract, string knownHandler)
     {
         var types = Types.InAssembly(Assembly.Load(Application))
@@ -45,7 +50,7 @@ public class VisibilityTests
             .That()
             .Inherit(typeof(AbstractValidator<>));
 
-        AssertSelects(types, "CreateTeamValidator", "CorrectMatchResultValidator");
+        AssertSelects(types, "CreateTeamValidator", "CorrectMatchResultValidator", "GetTeamsValidator", "PagedQueryValidator`1");
         AssertSuccessful(types.Should().NotBePublic().GetResult());
     }
 

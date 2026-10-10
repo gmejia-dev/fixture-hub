@@ -30,7 +30,7 @@ fixture-hub/
 │   └── FixtureHub.Api/             Endpoints HTTP, middlewares, composition root
 ├── tests/
 │   ├── FixtureHub.UnitTests/          Dominio, handlers y decorators, con fakes
-│   ├── FixtureHub.IntegrationTests/   Persistencia e idempotencia contra SQL Server en Docker
+│   ├── FixtureHub.IntegrationTests/   Persistencia, lecturas e idempotencia contra SQL Server en Docker; la Api por HTTP
 │   └── FixtureHub.ArchitectureTests/  Reglas de dependencia, visibilidad y convenciones
 ├── docs/                           Arquitectura y decisiones de diseño
 ├── dotnet-tools.json               Herramientas locales (dotnet-ef)
@@ -41,13 +41,34 @@ fixture-hub/
 
 ## Cómo levantarlo
 
-_Pendiente: se documentará al completar la dockerización ([#6](https://github.com/gmejia-dev/fixture-hub/issues/6))._
+La forma definitiva será `docker compose up` ([#6](https://github.com/gmejia-dev/fixture-hub/issues/6)). Mientras tanto, en Windows con SQL Server LocalDB (viene con Visual Studio):
 
-Requisitos previstos: Docker Desktop con al menos 4 GB de RAM asignados.
+```bash
+dotnet run --project src/FixtureHub.Api --launch-profile http
+```
+
+En Development, la Api aplica las migraciones y carga un torneo de ejemplo (6 equipos, 42 jugadores y 15 partidos, uno en curso) si la base está vacía. Queda en `http://localhost:5065`; el documento OpenAPI está en `/openapi/v1.json` y [`FixtureHub.Api.http`](src/FixtureHub.Api/FixtureHub.Api.http) tiene un ejemplo de cada endpoint.
+
+Para usar otro SQL Server, sobrescribe la cadena de conexión con una variable de entorno:
+
+```bash
+ConnectionStrings__FixtureHub="Server=localhost,1433;Database=FixtureHub;User Id=sa;Password=<tu-clave>;TrustServerCertificate=True" dotnet run --project src/FixtureHub.Api --launch-profile http
+```
+
+### La API en una mirada
+
+| | |
+|---|---|
+| Lecturas | `GET /api/teams`, `/api/teams/{id}`, `/api/teams/{id}/players`, `/api/matches`, `/api/matches/{id}`, `/api/standings`, `/api/top-scorers`, con `pageNumber`, `pageSize` (máx. 100), `sortBy`, `sortDirection` y filtros |
+| Escrituras | POST, PUT, PATCH y DELETE sobre equipos, jugadores, partidos y goles |
+| Idempotencia | Todo POST exige el header `Idempotency-Key`; repetir la misma petición devuelve la respuesta original con `Idempotent-Replayed: true` |
+| Errores | ProblemDetails (RFC 9457) con `errorCode`, `metadata` y `traceId` |
+
+El detalle está en [docs/arquitectura.md](docs/arquitectura.md#api-rest).
 
 ## Cómo correr los tests
 
-Requisitos: SDK de .NET 10 y Docker Desktop encendido (los tests de integración levantan un SQL Server 2022 con [Testcontainers](https://dotnet.testcontainers.org/)).
+Requisitos: SDK de .NET 10 y Docker Desktop encendido (los tests de integración levantan un SQL Server 2022 con [Testcontainers](https://dotnet.testcontainers.org/) y prueban la Api por HTTP con `WebApplicationFactory`).
 
 ```bash
 dotnet tool restore

@@ -40,16 +40,32 @@ internal static class ValidationDecorator
         }
     }
 
-    private static async Task<Error?> ValidateAsync<TCommand>(
-        TCommand command,
-        IEnumerable<IValidator<TCommand>> validators,
+    internal sealed class QueryHandler<TQuery, TResponse>(
+        IQueryHandler<TQuery, TResponse> inner,
+        IEnumerable<IValidator<TQuery>> validators)
+        : IQueryHandler<TQuery, TResponse>
+        where TQuery : IQuery<TResponse>
+    {
+        public async Task<Result<TResponse>> HandleAsync(TQuery query, CancellationToken cancellationToken)
+        {
+            var error = await ValidateAsync(query, validators, cancellationToken);
+
+            return error is null
+                ? await inner.HandleAsync(query, cancellationToken)
+                : Result.Failure<TResponse>(error);
+        }
+    }
+
+    private static async Task<Error?> ValidateAsync<TRequest>(
+        TRequest request,
+        IEnumerable<IValidator<TRequest>> validators,
         CancellationToken cancellationToken)
     {
         var failures = new List<FluentValidation.Results.ValidationFailure>();
 
         foreach (var validator in validators)
         {
-            var result = await validator.ValidateAsync(command, cancellationToken);
+            var result = await validator.ValidateAsync(request, cancellationToken);
             failures.AddRange(result.Errors);
         }
 

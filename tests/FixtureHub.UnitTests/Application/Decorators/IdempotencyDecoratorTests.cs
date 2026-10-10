@@ -43,6 +43,7 @@ public class IdempotencyDecoratorTests
         Assert.Equal($"\"{id}\"", record.Response);
         Assert.Equal(Now.AddHours(24), record.ExpiresAt);
         Assert.Equal(64, record.Fingerprint.Length);
+        Assert.False(_context.Replayed);
     }
 
     [Fact]
@@ -56,6 +57,7 @@ public class IdempotencyDecoratorTests
 
         Assert.Equal(id, repeated.Value);
         Assert.Equal(1, handler.Calls);
+        Assert.True(_context.Replayed);
     }
 
     [Fact]
@@ -69,6 +71,7 @@ public class IdempotencyDecoratorTests
         Assert.Equal("Idempotency.KeyReused", result.Error.Code);
         Assert.Equal(Key, result.Error.Metadata?["key"]);
         Assert.Equal(1, handler.Calls);
+        Assert.False(_context.Replayed);
     }
 
     [Fact]

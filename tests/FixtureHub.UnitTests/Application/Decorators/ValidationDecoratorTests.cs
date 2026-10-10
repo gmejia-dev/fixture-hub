@@ -58,6 +58,30 @@ public class ValidationDecoratorTests
         Assert.Equal(1, _handler.Calls);
     }
 
+    [Fact]
+    public async Task HandleAsync_InvalidQuery_ReturnsTheCodesWithoutCallingTheHandler()
+    {
+        var handler = new CountingQueryHandler();
+        var decorator = new ValidationDecorator.QueryHandler<FindThings, int>(handler, [new FindThingsValidator()]);
+
+        var result = await decorator.HandleAsync(new FindThings(0), CancellationToken.None);
+
+        Assert.Equal(["Thing.InvalidPage"], ErrorsByField(result.Error)["page"]);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task HandleAsync_ValidQuery_CallsTheHandler()
+    {
+        var handler = new CountingQueryHandler();
+        var decorator = new ValidationDecorator.QueryHandler<FindThings, int>(handler, [new FindThingsValidator()]);
+
+        var result = await decorator.HandleAsync(new FindThings(1), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, handler.Calls);
+    }
+
     private ValidationDecorator.CommandHandler<RegisterThing, Guid> Decorate(
         params IValidator<RegisterThing>[] validators) =>
         new(_handler, validators);
@@ -88,6 +112,25 @@ public class ValidationDecoratorTests
         {
             Calls++;
             return Task.FromResult(Result.Success(Guid.NewGuid()));
+        }
+    }
+
+    private sealed record FindThings(int Page) : IQuery<int>;
+
+    private sealed class FindThingsValidator : AbstractValidator<FindThings>
+    {
+        public FindThingsValidator() =>
+            RuleFor(query => query.Page).GreaterThan(0).WithErrorCode("Thing.InvalidPage");
+    }
+
+    private sealed class CountingQueryHandler : IQueryHandler<FindThings, int>
+    {
+        public int Calls { get; private set; }
+
+        public Task<Result<int>> HandleAsync(FindThings query, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(Result.Success(42));
         }
     }
 }
