@@ -14,6 +14,9 @@ public static class GoalErrors
                 ["max"] = Goal.MaxMinute
             });
 
+    public static readonly Error PlayerRequired =
+        Error.Validation("Goal.PlayerRequired", "El jugador que marcó el gol es obligatorio.");
+
     public static Error NotFound(Guid goalId) =>
         Error.NotFound(
             "Goal.NotFound",

@@ -1,4 +1,7 @@
 using FixtureHub.Application;
+using FixtureHub.Application.Abstractions.Messaging;
+using FixtureHub.Domain.Common;
+using FixtureHub.Domain.Matches;
 using FixtureHub.Domain.Teams;
 using FixtureHub.Infrastructure;
 using FixtureHub.Infrastructure.Persistence;
@@ -43,6 +46,24 @@ public sealed class SqlServerFixture : IAsyncLifetime
     public AsyncServiceScope CreateScope() =>
         (_provider ?? throw new InvalidOperationException("La base de datos no se inició.")).CreateAsyncScope();
 
+    public async Task<Result> SendAsync<TCommand>(TCommand command)
+        where TCommand : ICommand
+    {
+        await using var scope = CreateScope();
+
+        return await scope.ServiceProvider.GetRequiredService<ICommandHandler<TCommand>>()
+            .HandleAsync(command, CancellationToken.None);
+    }
+
+    public async Task<Result<TResponse>> SendAsync<TCommand, TResponse>(TCommand command)
+        where TCommand : ICommand<TResponse>
+    {
+        await using var scope = CreateScope();
+
+        return await scope.ServiceProvider.GetRequiredService<ICommandHandler<TCommand, TResponse>>()
+            .HandleAsync(command, CancellationToken.None);
+    }
+
     public async Task SaveAsync(Team team)
     {
         await using var scope = CreateScope();
@@ -61,6 +82,18 @@ public sealed class SqlServerFixture : IAsyncLifetime
             .AsNoTracking()
             .Include(team => team.Players)
             .FirstOrDefaultAsync(team => team.Id == teamId);
+    }
+
+    public async Task<Match?> FindMatchAsync(Guid matchId)
+    {
+        await using var scope = CreateScope();
+
+        return await scope.ServiceProvider.GetRequiredService<FixtureHubDbContext>().Matches
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Include(match => match.Goals)
+            .Include(match => match.Corrections)
+            .FirstOrDefaultAsync(match => match.Id == matchId);
     }
 
     public async Task DisposeAsync()

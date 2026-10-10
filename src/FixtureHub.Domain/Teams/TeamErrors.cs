@@ -33,4 +33,10 @@ public static class TeamErrors
             "Team.NotFound",
             "El equipo no existe.",
             new Dictionary<string, object?> { ["teamId"] = teamId });
+
+    public static Error HasActiveMatches(Guid teamId) =>
+        Error.Conflict(
+            "Team.HasActiveMatches",
+            "No se puede eliminar un equipo con partidos programados o en curso.",
+            new Dictionary<string, object?> { ["teamId"] = teamId });
 }

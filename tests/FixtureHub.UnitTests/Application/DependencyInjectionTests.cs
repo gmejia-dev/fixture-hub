@@ -24,6 +24,7 @@ public sealed class DependencyInjectionTests : IDisposable
         services.AddFakeLogging();
         services.AddSingleton<IUnitOfWork>(_unitOfWork);
         services.AddSingleton<ITeamRepository>(_teams);
+        services.AddSingleton<IMatchRepository>(new FakeMatchRepository());
         services.AddApplication();
 
         _provider = services.BuildServiceProvider(new ServiceProviderOptions
