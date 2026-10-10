@@ -1,3 +1,4 @@
+using FixtureHub.Api.Endpoints.Matches;
 using FixtureHub.Api.Endpoints.Teams;
 using FixtureHub.Api.Idempotency;
 
@@ -10,6 +11,7 @@ internal static class ApiEndpoints
         var api = app.MapGroup("/api").AddEndpointFilter<IdempotencyKeyFilter>();
 
         api.MapTeamEndpoints();
+        api.MapMatchEndpoints();
 
         return app;
     }
