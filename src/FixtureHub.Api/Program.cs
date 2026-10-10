@@ -15,6 +15,10 @@ builder.Services
 
 var app = builder.Build();
 
+await app.Services.InitializeDatabaseAsync(
+    applyMigrations: app.Configuration.GetValue<bool>("Database:ApplyMigrations"),
+    seed: app.Configuration.GetValue<bool>("Database:Seed"));
+
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 

@@ -51,6 +51,9 @@ public sealed class SqlServerFixture : IAsyncLifetime
 
     public IServiceProvider ApiServices => Api.Services;
 
+    public string ConnectionStringFor(string database) =>
+        new SqlConnectionStringBuilder(ConnectionString) { InitialCatalog = database }.ConnectionString;
+
     private FixtureHubApiFactory Api => _api ??= new FixtureHubApiFactory(ConnectionString);
 
     public HttpClient CreateClient() => Api.CreateClient();

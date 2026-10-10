@@ -12,15 +12,19 @@ public class VisibilityTests
     private const string Infrastructure = "FixtureHub.Infrastructure";
 
     [Fact]
-    public void Infrastructure_EveryTypeExceptTheRegistrationAndTheMigrations_IsInternal()
+    public void Infrastructure_EveryTypeExceptItsEntryPointsAndTheMigrations_IsInternal()
     {
         var types = Types.InAssembly(Assembly.Load(Infrastructure))
             .That()
             .DoNotResideInNamespace($"{Infrastructure}.Persistence.Migrations")
             .And()
-            .DoNotHaveName("DependencyInjection");
+            .DoNotHaveName("DependencyInjection")
+            .And()
+            .DoNotHaveName("DatabaseInitializer");
 
-        AssertSelects(types, "UnitOfWork", "FixtureHubDbContext", "TeamRepository", "IdempotencyStore", "TeamReader", "PagedSql");
+        AssertSelects(
+            types,
+            "UnitOfWork", "FixtureHubDbContext", "TeamRepository", "IdempotencyStore", "TeamReader", "PagedSql", "DatabaseSeeder");
         AssertSuccessful(types.Should().NotBePublic().GetResult());
     }
 

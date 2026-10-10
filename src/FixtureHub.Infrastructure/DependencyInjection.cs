@@ -5,6 +5,7 @@ using FixtureHub.Infrastructure.Idempotency;
 using FixtureHub.Infrastructure.Persistence;
 using FixtureHub.Infrastructure.Persistence.Repositories;
 using FixtureHub.Infrastructure.Reading;
+using FixtureHub.Infrastructure.Seeding;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -34,6 +35,8 @@ public static class DependencyInjection
         services.AddScoped<IMatchReader, MatchReader>();
         services.AddScoped<IStandingsReader, StandingsReader>();
         services.AddScoped<ITopScorerReader, TopScorerReader>();
+
+        services.AddScoped<DatabaseSeeder>();
 
         return services;
     }
