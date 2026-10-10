@@ -38,7 +38,8 @@ El detalle completo está en la [guía de contribución](../CONTRIBUTING.md#conv
 | Puntos | Victoria 3, empate 1, derrota 0. |
 | Orden de la tabla | Puntos → diferencia de gol → goles a favor → nombre del equipo (desempate determinista). |
 | Partidos que cuentan | Solo los partidos `Finished`. |
-| Partidos inválidos | Un equipo no puede jugar contra sí mismo (400) ni tener dos partidos a la misma hora (409). |
+| Partidos inválidos | Un equipo no puede jugar contra sí mismo (400) ni tener dos partidos a la misma hora (409). "A la misma hora" es el mismo instante, comparado en UTC; los partidos cancelados no cuentan. |
+| Eliminar un equipo | No se puede si tiene partidos programados o en curso (409 `Team.HasActiveMatches`): esos partidos quedarían sin rival. Con partidos finalizados o cancelados sí se puede; quedan como historial. |
 
 ## Ciclo de vida del partido
 
@@ -63,9 +64,10 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 | Tema | Decisión |
 |---|---|
 | Rutas | kebab-case y recursos en plural (`/api/teams`, `/api/top-scorers`). Ver [convenciones de nombres](#convenciones-de-nombres). |
-| Idempotencia | `Idempotency-Key` obligatorio en todo POST. Sin el header → 400. Misma clave con otro body → 409. Misma clave mientras la primera sigue en curso → 409. Repetición idéntica → se devuelve la respuesta original. Las claves expiran a las 24 horas y se guardan en la misma transacción del Unit of Work. |
+| Idempotencia | `Idempotency-Key` obligatorio en todo POST. Sin el header → 400. Misma clave con otro body → 409. Misma clave mientras la primera sigue en curso → la segunda **espera** (hasta 10 s) a que la primera termine y recibe su respuesta; si la espera vence, 409. Repetición idéntica → se devuelve la respuesta original. Las claves expiran a las 24 horas y se guardan en la misma transacción que los cambios del comando. |
 | DELETE | Idempotente: 204 aunque el recurso ya estuviera eliminado; 404 si nunca existió. |
 | Errores | ProblemDetails (RFC 9457) con `errorCode`, `traceId` y `metadata` (diccionario de datos adicionales para el frontend). Nunca incluye datos sensibles. |
+| Idiomas | La API devuelve códigos, nunca texto traducido: `errorCode` y `metadata` en cada error, y un código por campo en los errores de validación (`"errors": { "name": ["Team.NameRequired"] }`). Todo valor que cambia dentro de un mensaje viaja en `metadata`, para que el frontend pueda armar la frase en cualquier idioma. El frontend traduce con sus catálogos en español e inglés, y un test verifica que cada código tenga su traducción. `detail` queda en español como descripción para quien consume la API directo (Swagger, Postman). |
 | Paginación | Todos los GET aceptan `pageNumber`, `pageSize` (máximo 100), `sortBy`, `sortDirection` y filtros por entidad. |
 | Ordenamiento | `sortBy` se valida contra una lista blanca de columnas para evitar inyección SQL. |
 
@@ -80,7 +82,7 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 
 `TeamCreated`, `MatchStarted`, `GoalScored`, `GoalAnnulled`, `MatchFinished`, `MatchCancelled` y `MatchResultCorrected`. Cada cambio de estado del partido genera su propio evento.
 
-Las entidades acumulan sus eventos y el Unit of Work los despacha al confirmar la transacción. Cada evento se registra en la tabla `DomainEvents` y se loggea con el TraceId del request que lo originó.
+Las entidades acumulan sus eventos y el Unit of Work los despacha **antes de guardar**, dentro de la misma transacción: la tabla de posiciones se actualiza junto con el partido, sin consistencia eventual. Cada evento se registra en la tabla `DomainEvents` y se loggea con el TraceId del request que lo originó.
 
 ## Extensiones futuras
 

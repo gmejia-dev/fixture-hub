@@ -22,9 +22,21 @@ public static class TeamErrors
             $"El país del equipo no puede superar {Team.CountryMaxLength} caracteres.",
             new Dictionary<string, object?> { ["maxLength"] = Team.CountryMaxLength });
 
+    public static Error NameTaken(string name) =>
+        Error.Conflict(
+            "Team.NameTaken",
+            $"Ya existe un equipo con el nombre {name}.",
+            new Dictionary<string, object?> { ["name"] = name });
+
     public static Error NotFound(Guid teamId) =>
         Error.NotFound(
             "Team.NotFound",
             "El equipo no existe.",
+            new Dictionary<string, object?> { ["teamId"] = teamId });
+
+    public static Error HasActiveMatches(Guid teamId) =>
+        Error.Conflict(
+            "Team.HasActiveMatches",
+            "No se puede eliminar un equipo con partidos programados o en curso.",
             new Dictionary<string, object?> { ["teamId"] = teamId });
 }

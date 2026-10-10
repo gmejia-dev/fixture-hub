@@ -7,6 +7,18 @@ public static class MatchErrors
     public static readonly Error SameTeams =
         Error.Validation("Match.SameTeams", "Un equipo no puede jugar contra sí mismo.");
 
+    public static readonly Error HomeTeamRequired =
+        Error.Validation("Match.HomeTeamRequired", "El equipo local es obligatorio.");
+
+    public static readonly Error AwayTeamRequired =
+        Error.Validation("Match.AwayTeamRequired", "El equipo visitante es obligatorio.");
+
+    public static readonly Error ScheduledAtRequired =
+        Error.Validation("Match.ScheduledAtRequired", "La fecha y hora del partido es obligatoria.");
+
+    public static readonly Error GoalsRequired =
+        Error.Validation("Match.GoalsRequired", "La lista de goles es obligatoria; puede estar vacía.");
+
     public static readonly Error CorrectionReasonRequired =
         Error.Validation("Match.CorrectionReasonRequired", "El motivo de la corrección es obligatorio.");
 
@@ -21,6 +33,12 @@ public static class MatchErrors
             "Match.NotFound",
             "El partido no existe.",
             new Dictionary<string, object?> { ["matchId"] = matchId });
+
+    public static Error ScheduleConflict(DateTimeOffset scheduledAt) =>
+        Error.Conflict(
+            "Match.ScheduleConflict",
+            "Uno de los equipos ya tiene un partido a esa hora.",
+            new Dictionary<string, object?> { ["scheduledAt"] = scheduledAt });
 
     public static Error PlayerNotInMatch(Guid playerId) =>
         Error.Validation(

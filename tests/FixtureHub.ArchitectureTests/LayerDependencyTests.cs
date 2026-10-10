@@ -13,7 +13,7 @@ public class LayerDependencyTests
     [Fact]
     public void Domain_DoesNotDependOnAnyOtherLayer()
     {
-        var result = Types.InAssembly(Assembly.Load(Domain))
+        var result = Layer(Domain)
             .ShouldNot()
             .HaveDependencyOnAny(Application, Infrastructure, Api)
             .GetResult();
@@ -24,7 +24,7 @@ public class LayerDependencyTests
     [Fact]
     public void Application_DependsOnlyOnDomain()
     {
-        var result = Types.InAssembly(Assembly.Load(Application))
+        var result = Layer(Application)
             .ShouldNot()
             .HaveDependencyOnAny(Infrastructure, Api)
             .GetResult();
@@ -35,7 +35,7 @@ public class LayerDependencyTests
     [Fact]
     public void Infrastructure_DoesNotDependOnApi()
     {
-        var result = Types.InAssembly(Assembly.Load(Infrastructure))
+        var result = Layer(Infrastructure)
             .ShouldNot()
             .HaveDependencyOnAny(Api)
             .GetResult();
@@ -46,7 +46,7 @@ public class LayerDependencyTests
     [Fact]
     public void Domain_DoesNotDependOnDataAccessOrWebFrameworks()
     {
-        var result = Types.InAssembly(Assembly.Load(Domain))
+        var result = Layer(Domain)
             .ShouldNot()
             .HaveDependencyOnAny(
                 "Microsoft.EntityFrameworkCore",
@@ -65,7 +65,7 @@ public class LayerDependencyTests
     [Fact]
     public void Application_DoesNotDependOnDataAccessOrWebFrameworks()
     {
-        var result = Types.InAssembly(Assembly.Load(Application))
+        var result = Layer(Application)
             .ShouldNot()
             .HaveDependencyOnAny(
                 "Microsoft.EntityFrameworkCore",
@@ -76,6 +76,15 @@ public class LayerDependencyTests
             .GetResult();
 
         AssertSuccessful(result);
+    }
+
+    private static Types Layer(string assemblyName)
+    {
+        var types = Types.InAssembly(Assembly.Load(assemblyName));
+
+        Assert.NotEmpty(types.GetTypes());
+
+        return types;
     }
 
     private static void AssertSuccessful(TestResult result) =>

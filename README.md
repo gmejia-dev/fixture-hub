@@ -16,7 +16,7 @@ Sistema de gestión de torneos de fútbol: equipos, jugadores, calendario de par
 | Seguridad | JWT (lecturas públicas, escrituras con rol Admin) |
 | Observabilidad | Serilog, CorrelationId/TraceId, OpenTelemetry + Jaeger |
 | Frontend | Next.js |
-| Tests | xUnit |
+| Tests | xUnit, Testcontainers (SQL Server real), NetArchTest |
 | Infraestructura | Docker + docker-compose |
 
 ## Estructura del repositorio
@@ -29,8 +29,11 @@ fixture-hub/
 │   ├── FixtureHub.Infrastructure/  EF Core, Dapper, SQL Server, seed, JWT
 │   └── FixtureHub.Api/             Endpoints HTTP, middlewares, composition root
 ├── tests/
-│   └── FixtureHub.UnitTests/
+│   ├── FixtureHub.UnitTests/          Dominio, handlers y decorators, con fakes
+│   ├── FixtureHub.IntegrationTests/   Persistencia e idempotencia contra SQL Server en Docker
+│   └── FixtureHub.ArchitectureTests/  Reglas de dependencia, visibilidad y convenciones
 ├── docs/                           Arquitectura y decisiones de diseño
+├── dotnet-tools.json               Herramientas locales (dotnet-ef)
 ├── Directory.Build.props           Configuración común (C# 14, nullable, warnings como errores)
 ├── global.json                     Versión fija del SDK de .NET
 └── FixtureHub.slnx
@@ -41,6 +44,22 @@ fixture-hub/
 _Pendiente: se documentará al completar la dockerización ([#6](https://github.com/gmejia-dev/fixture-hub/issues/6))._
 
 Requisitos previstos: Docker Desktop con al menos 4 GB de RAM asignados.
+
+## Cómo correr los tests
+
+Requisitos: SDK de .NET 10 y Docker Desktop encendido (los tests de integración levantan un SQL Server 2022 con [Testcontainers](https://dotnet.testcontainers.org/)).
+
+```bash
+dotnet tool restore
+dotnet test
+```
+
+La primera corrida descarga la imagen de SQL Server (unos 1,5 GB). Para correr solo los tests que no necesitan Docker:
+
+```bash
+dotnet test tests/FixtureHub.UnitTests
+dotnet test tests/FixtureHub.ArchitectureTests
+```
 
 ## Documentación
 
