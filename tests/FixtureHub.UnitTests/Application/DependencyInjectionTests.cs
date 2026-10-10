@@ -3,9 +3,12 @@ using FixtureHub.Application.Abstractions.Events;
 using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Abstractions.Messaging;
 using FixtureHub.Application.Abstractions.Persistence;
+using FixtureHub.Application.Abstractions.Reading;
 using FixtureHub.Application.Decorators;
 using FixtureHub.Application.Teams.CreateTeam;
+using FixtureHub.Application.Pagination;
 using FixtureHub.Application.Teams.DeleteTeam;
+using FixtureHub.Application.Teams.GetTeams;
 using FixtureHub.Domain.Common;
 using FixtureHub.Domain.Teams;
 using FixtureHub.UnitTests.Application.Fakes;
@@ -21,6 +24,7 @@ public sealed class DependencyInjectionTests : IDisposable
     private readonly FakeTeamRepository _teams = new();
     private readonly FakeTeamStandingRepository _standings = new();
     private readonly FakeIdempotencyStore _idempotency = new();
+    private readonly FakeTeamReader _teamReader = new();
     private readonly ServiceProvider _provider;
 
     public DependencyInjectionTests()
@@ -32,6 +36,7 @@ public sealed class DependencyInjectionTests : IDisposable
         services.AddSingleton<IMatchRepository>(new FakeMatchRepository());
         services.AddSingleton<ITeamStandingRepository>(_standings);
         services.AddSingleton<IIdempotencyStore>(_idempotency);
+        services.AddSingleton<ITeamReader>(_teamReader);
         services.AddApplication();
 
         _provider = services.BuildServiceProvider(new ServiceProviderOptions
@@ -122,6 +127,42 @@ public sealed class DependencyInjectionTests : IDisposable
         await dispatcher.DispatchAsync(new TeamCreated(teamId, "Los Halcones"), CancellationToken.None);
 
         Assert.Equal(teamId, Assert.Single(_standings.All).TeamId);
+    }
+
+    [Fact]
+    public void AddApplication_Query_IsResolvedWithValidationAsTheOutermostDecorator()
+    {
+        using var scope = _provider.CreateScope();
+
+        var handler = scope.ServiceProvider.GetRequiredService<IQueryHandler<GetTeamsQuery, PagedResult<TeamSummary>>>();
+
+        Assert.IsType<ValidationDecorator.QueryHandler<GetTeamsQuery, PagedResult<TeamSummary>>>(handler);
+    }
+
+    [Fact]
+    public async Task AddApplication_InvalidQuery_IsRejectedWithoutReachingTheReaderOrOpeningATransaction()
+    {
+        using var scope = _provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<IQueryHandler<GetTeamsQuery, PagedResult<TeamSummary>>>();
+
+        var result = await handler.HandleAsync(new GetTeamsQuery(1, 500, "password", null, null, null), CancellationToken.None);
+
+        Assert.Equal("Validation.Failed", result.Error.Code);
+        Assert.Empty(_teamReader.Queries);
+        Assert.Empty(_unitOfWork.Calls);
+    }
+
+    [Fact]
+    public async Task AddApplication_ValidQuery_ReachesTheReaderWithoutOpeningATransaction()
+    {
+        using var scope = _provider.CreateScope();
+        var handler = scope.ServiceProvider.GetRequiredService<IQueryHandler<GetTeamsQuery, PagedResult<TeamSummary>>>();
+
+        var result = await handler.HandleAsync(new GetTeamsQuery(1, 10, "name", "desc", null, null), CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Single(_teamReader.Queries);
+        Assert.Empty(_unitOfWork.Calls);
     }
 
     public void Dispose() => _provider.Dispose();

@@ -1,8 +1,10 @@
 using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Abstractions.Persistence;
+using FixtureHub.Application.Abstractions.Reading;
 using FixtureHub.Infrastructure.Idempotency;
 using FixtureHub.Infrastructure.Persistence;
 using FixtureHub.Infrastructure.Persistence.Repositories;
+using FixtureHub.Infrastructure.Reading;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -26,6 +28,9 @@ public static class DependencyInjection
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        services.AddSingleton(new SqlConnectionFactory(connectionString));
+        services.AddScoped<ITeamReader, TeamReader>();
 
         return services;
     }
