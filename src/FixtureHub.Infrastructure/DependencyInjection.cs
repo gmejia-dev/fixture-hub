@@ -3,6 +3,7 @@ using FixtureHub.Infrastructure.Persistence;
 using FixtureHub.Infrastructure.Persistence.Repositories;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace FixtureHub.Infrastructure;
 
@@ -14,8 +15,11 @@ public static class DependencyInjection
             connectionString,
             sqlServer => sqlServer.UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery)));
 
+        services.TryAddSingleton(TimeProvider.System);
+
         services.AddScoped<ITeamRepository, TeamRepository>();
         services.AddScoped<IMatchRepository, MatchRepository>();
+        services.AddScoped<ITeamStandingRepository, TeamStandingRepository>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 

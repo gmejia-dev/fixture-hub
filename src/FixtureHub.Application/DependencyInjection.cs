@@ -1,5 +1,7 @@
+using FixtureHub.Application.Abstractions.Events;
 using FixtureHub.Application.Abstractions.Messaging;
 using FixtureHub.Application.Decorators;
+using FixtureHub.Application.Events;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -20,7 +22,12 @@ public static class DependencyInjection
             .WithScopedLifetime()
             .AddClasses(classes => classes.AssignableTo(typeof(IValidator<>)), publicOnly: false)
             .AsImplementedInterfaces(type => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IValidator<>))
+            .WithScopedLifetime()
+            .AddClasses(classes => classes.AssignableTo(typeof(IDomainEventHandler<>)), publicOnly: false)
+            .AsImplementedInterfaces()
             .WithScopedLifetime());
+
+        services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
 
         services.Decorate(typeof(ICommandHandler<>), typeof(TransactionDecorator.CommandHandler<>));
         services.Decorate(typeof(ICommandHandler<,>), typeof(TransactionDecorator.CommandHandler<,>));

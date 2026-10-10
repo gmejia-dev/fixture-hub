@@ -1,10 +1,12 @@
 using FixtureHub.Application;
+using FixtureHub.Application.Abstractions.Events;
 using FixtureHub.Application.Abstractions.Messaging;
 using FixtureHub.Application.Abstractions.Persistence;
 using FixtureHub.Application.Decorators;
 using FixtureHub.Application.Teams.CreateTeam;
 using FixtureHub.Application.Teams.DeleteTeam;
 using FixtureHub.Domain.Common;
+using FixtureHub.Domain.Teams;
 using FixtureHub.UnitTests.Application.Fakes;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -16,6 +18,7 @@ public sealed class DependencyInjectionTests : IDisposable
 {
     private readonly FakeUnitOfWork _unitOfWork = new();
     private readonly FakeTeamRepository _teams = new();
+    private readonly FakeTeamStandingRepository _standings = new();
     private readonly ServiceProvider _provider;
 
     public DependencyInjectionTests()
@@ -25,6 +28,7 @@ public sealed class DependencyInjectionTests : IDisposable
         services.AddSingleton<IUnitOfWork>(_unitOfWork);
         services.AddSingleton<ITeamRepository>(_teams);
         services.AddSingleton<IMatchRepository>(new FakeMatchRepository());
+        services.AddSingleton<ITeamStandingRepository>(_standings);
         services.AddApplication();
 
         _provider = services.BuildServiceProvider(new ServiceProviderOptions
@@ -88,6 +92,18 @@ public sealed class DependencyInjectionTests : IDisposable
         Assert.True(result.IsSuccess);
         Assert.Equal(["Begin", "Commit"], _unitOfWork.Calls);
         Assert.Single(_teams.All);
+    }
+
+    [Fact]
+    public async Task AddApplication_TeamCreatedEvent_IsHandledByTheStandingsProjection()
+    {
+        using var scope = _provider.CreateScope();
+        var dispatcher = scope.ServiceProvider.GetRequiredService<IDomainEventDispatcher>();
+        var teamId = Guid.NewGuid();
+
+        await dispatcher.DispatchAsync(new TeamCreated(teamId, "Los Halcones"), CancellationToken.None);
+
+        Assert.Equal(teamId, Assert.Single(_standings.All).TeamId);
     }
 
     public void Dispose() => _provider.Dispose();

@@ -1,5 +1,6 @@
 using FixtureHub.Application;
 using FixtureHub.Application.Abstractions.Messaging;
+using FixtureHub.Application.Abstractions.Persistence;
 using FixtureHub.Domain.Common;
 using FixtureHub.Domain.Matches;
 using FixtureHub.Domain.Teams;
@@ -67,10 +68,21 @@ public sealed class SqlServerFixture : IAsyncLifetime
     public async Task SaveAsync(Team team)
     {
         await using var scope = CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<FixtureHubDbContext>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-        context.Teams.Add(team);
-        await context.SaveChangesAsync();
+        await unitOfWork.BeginTransactionAsync(CancellationToken.None);
+        scope.ServiceProvider.GetRequiredService<ITeamRepository>().Add(team);
+        var committed = await unitOfWork.CommitAsync(CancellationToken.None);
+
+        if (committed.IsFailure)
+            throw new InvalidOperationException($"No se pudo guardar el equipo: {committed.Error.Code}");
+    }
+
+    internal async Task<T> QueryAsync<T>(Func<FixtureHubDbContext, Task<T>> query)
+    {
+        await using var scope = CreateScope();
+
+        return await query(scope.ServiceProvider.GetRequiredService<FixtureHubDbContext>());
     }
 
     public async Task<Team?> FindTeamAsync(Guid teamId)
