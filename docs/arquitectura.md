@@ -40,11 +40,15 @@ Application necesita persistir, pero no puede depender de Infrastructure. Por es
 // FixtureHub.Application
 public interface IUnitOfWork
 {
-    Task<Result> CommitAsync(CancellationToken ct);
+    Task BeginTransactionAsync(CancellationToken cancellationToken);
+
+    Task<Result> CommitAsync(CancellationToken cancellationToken);
+
+    Task RollbackAsync(CancellationToken cancellationToken);
 }
 
 // FixtureHub.Infrastructure
-internal sealed class UnitOfWork(FixtureHubDbContext db) : IUnitOfWork { ... }
+internal sealed partial class UnitOfWork(FixtureHubDbContext context, ...) : IUnitOfWork { ... }
 ```
 
 En tiempo de compilación, Infrastructure depende de Application. En tiempo de ejecución, Application invoca código de Infrastructure. La dependencia de código va en sentido contrario al flujo de control: ese es el principio de inversión de dependencias (la *D* de SOLID).
@@ -56,10 +60,10 @@ En tiempo de compilación, Infrastructure depende de Application. En tiempo de e
 ```csharp
 builder.Services
     .AddApplication()
-    .AddInfrastructure(builder.Configuration);
+    .AddInfrastructure(builder.Configuration.GetConnectionString("FixtureHub")!);
 ```
 
-Por eso la Api referencia a Infrastructure. Las clases de Infrastructure son `internal`, así que los endpoints no pueden usarlas directamente; solo es pública la extensión de registro.
+Por eso la Api referencia a Infrastructure. Las clases de Infrastructure son `internal`, así que los endpoints no pueden usarlas directamente; solo son públicas la extensión de registro y las migraciones. Un test de arquitectura lo verifica.
 
 ## CQRS
 
@@ -72,7 +76,20 @@ Las escrituras y las lecturas siguen caminos distintos:
 | Transacción | Unit of Work con commit explícito | No aplica |
 | Paginación | No aplica | En SQL (`OFFSET/FETCH`), nunca en memoria |
 
-El despacho usa interfaces propias (`ICommandHandler`, `IQueryHandler`) y un dispatcher. Las preocupaciones transversales (validación, logging, transacción) se aplican con decorators.
+Los handlers implementan interfaces propias (`ICommandHandler<TCommand>` e `ICommandHandler<TCommand, TResponse>`) y **no hay dispatcher**: el endpoint recibe por inyección el handler ya envuelto por los decorators. [Scrutor](https://github.com/khellang/Scrutor) registra los handlers por convención y aplica los decorators con `Decorate`; el último que se registra queda más afuera.
+
+```
+endpoint → ICommandHandler<CreateTeamCommand, Guid>
+  LoggingDecorator          nombre del comando, duración y resultado (nunca su contenido)
+  └ ValidationDecorator     FluentValidation; si falla, 400 sin abrir la transacción
+     └ TransactionDecorator  BEGIN → … → COMMIT, o ROLLBACK si algo falla
+        └ IdempotencyDecorator  candado por clave, repite la respuesta guardada
+           └ CreateTeamHandler  dominio + repositorios; nunca hace commit
+```
+
+- **El commit lo hace `TransactionDecorator`, nunca el handler.** Así la idempotencia guarda la respuesta en la misma transacción que los cambios, y ningún handler puede olvidar cerrarla.
+- Los handlers y validadores son `internal`: nadie puede inyectarlos directo y saltarse el pipeline. Scrutor los registra como servicios con clave y solo expone la cadena decorada.
+- Un test de arquitectura exige que cada command tenga exactamente un handler.
 
 ### La tabla de posiciones es una proyección
 
@@ -101,6 +118,44 @@ GET /api/standings  ──▶  Dapper: ORDER BY Points DESC, GoalDifference DESC
 - Si la proyección se desincronizara (por ejemplo, por un cambio manual en la base), se puede reconstruir recorriendo los partidos `Finished`.
 - Se descartó calcular la tabla con SQL en cada consulta: la regla de puntos habría quedado duplicada, en el SQL y en C#.
 
+### Despacho de eventos de dominio
+
+Los agregados acumulan sus eventos en memoria (`Raise`). Al confirmar, el Unit of Work:
+
+1. Busca en el `ChangeTracker` de EF Core los agregados con eventos pendientes y los vacía.
+2. Por cada evento, agrega una fila a la tabla `DomainEvents` (tipo, JSON, fecha y TraceId del request) y lo entrega a `IDomainEventDispatcher`, que llama a todos los `IDomainEventHandler<TEvento>` registrados.
+3. Repite mientras aparezcan eventos nuevos (un handler podría generar otros).
+4. Llama a `SaveChanges` y confirma la transacción: el cambio, la proyección y el registro de eventos se guardan juntos o no se guarda nada.
+
+Los handlers de eventos viven en Application (`Standings/`) y Scrutor los registra igual que los de comandos. Un evento sin handlers (por ejemplo, `GoalScored`) solo queda registrado en `DomainEvents`.
+
+## Idempotencia
+
+`IdempotencyDecorator` actúa solo si el request trae una clave (`IdempotencyContext.Key`, que llena el filtro del endpoint en los POST). Corre **dentro** de la transacción:
+
+```
+BEGIN TRANSACTION
+  sp_getapplock 'idempotency:{clave}' (LockOwner = Transaction, espera hasta 10 s)
+  ¿existe la clave y no venció?   misma huella → devuelve el valor guardado, sin ejecutar
+                                  otra huella  → 409 Idempotency.KeyReused
+  si no → ejecuta el handler → si tuvo éxito, agrega la fila de la clave
+COMMIT  (la clave y los cambios del comando se confirman juntos; el candado se libera solo)
+```
+
+- **Huella:** SHA-256 del nombre completo del comando y su JSON. Distingue "el mismo pedido repetido" de "la clave reusada con otro contenido".
+- **Se guarda el valor del `Result`** (por ejemplo, el Id creado), no la respuesta HTTP, y solo de los éxitos. Un fallo hizo rollback, así que repetirlo es seguro.
+- **Mismo pedido en paralelo:** el segundo espera en el candado a que el primero termine y recibe su respuesta. Si la espera supera 10 s, 409 `Idempotency.RequestInProgress`.
+- Las claves expiran a las 24 horas; una clave vencida se reemplaza. La tabla tiene un índice por `ExpiresAt` para una limpieza periódica.
+
+## Persistencia
+
+- **Fluent API** en `Infrastructure/Persistence/Configurations`, un archivo por entidad. El dominio no tiene atributos de EF Core.
+- **Colecciones encapsuladas:** EF Core lee y escribe los campos privados (`_players`, `_goals`, `_corrections`); las propiedades públicas son de solo lectura.
+- **Borrado lógico** con filtro global (`HasQueryFilter`) en las raíces `Team` y `Match`. `IgnoreQueryFilters()` se usa solo para el `DELETE` idempotente.
+- **Índices únicos filtrados** (`WHERE [IsDeleted] = 0`): nombre de equipo y dorsal por equipo. Un nombre o dorsal liberado por un borrado se puede reutilizar.
+- **Choques con índices únicos** (errores 2601/2627 de SQL Server): `UniqueIndexViolation` los traduce a `Team.NameTaken` o `Player.ShirtNumberTaken`. Son la red de seguridad para dos requests simultáneos que pasan juntos la verificación del handler.
+- **Migraciones** con `dotnet-ef` como herramienta local (`dotnet tool restore`). Se aplican al iniciar la base de los tests de integración, así que un modelo sin migración rompe los tests.
+
 ## Flujo de un request
 
 ### Escritura: `POST /api/matches/{id}/goals`
@@ -108,12 +163,14 @@ GET /api/standings  ──▶  Dapper: ORDER BY Points DESC, GoalDifference DESC
 ```
 HTTP
  → [Api] middleware CorrelationId/TraceId → autenticación JWT → filtro Idempotency-Key → endpoint
- → [Application] dispatcher → decorators (validación, logging) → RegisterGoalHandler
-     → IMatchRepository.GetByIdAsync
-     → match.AddGoal(...)                 [Domain] valida la regla y genera GoalScored
-     → IUnitOfWork.CommitAsync
- → [Infrastructure] transacción EF Core: guarda cambios, guarda la idempotency key,
-                    registra y loggea los eventos de dominio, commit
+ → [Application] ICommandHandler<RegisterGoalCommand, Guid> (ya decorado, por inyección)
+     Logging → Validation → Transaction (BEGIN) → Idempotency (candado + clave)
+     → RegisterGoalHandler
+         → IMatchRepository.GetByIdAsync, ITeamRepository (plantel de los dos equipos)
+         → match.AddGoal(...)             [Domain] valida la regla y genera GoalScored
+     ← Idempotency agrega la fila de la clave
+     → Transaction: IUnitOfWork.CommitAsync
+ → [Infrastructure] despacha los eventos (proyección + tabla DomainEvents), SaveChanges, COMMIT
  ← Result → [Api] 201 Created / 400 / 404 / 409
 ```
 
@@ -140,6 +197,11 @@ Las reglas de dependencia se verifican con tests de arquitectura (`tests/Fixture
 | `Application_DoesNotDependOnDataAccessOrWebFrameworks` | Application no usa EF Core, Dapper, ADO.NET, SQL Server ni ASP.NET Core |
 | `EachLayer_ReferencesExactlyTheProjectsItShould` | Cada `.csproj` referencia exactamente los proyectos que le corresponden |
 | `Domain_DoesNotReferenceAnyNuGetPackage` | El `.csproj` de Domain no tiene ningún paquete NuGet |
+| `Infrastructure_EveryTypeExceptTheRegistrationAndTheMigrations_IsInternal` | Infrastructure solo expone `DependencyInjection` y las migraciones |
+| `Application_HandlersOfTheContract_AreInternal` y `Application_Validators_AreInternal` | Handlers de comandos, de eventos y validadores son `internal` |
+| `EveryCommand_HasExactlyOneHandler` | Ningún command queda sin handler (fallaría en tiempo de ejecución) ni con dos |
+
+Cada regla que filtra tipos verifica primero que el filtro seleccione los tipos esperados (**anti-vacío**). Sin esa comprobación, un filtro mal escrito no selecciona nada y la regla pasa sin revisar ningún tipo.
 
 Las reglas se revisan en dos niveles:
 
