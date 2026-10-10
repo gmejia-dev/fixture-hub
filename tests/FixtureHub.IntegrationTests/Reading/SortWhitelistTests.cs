@@ -1,3 +1,4 @@
+using FixtureHub.Application.Matches.GetMatches;
 using FixtureHub.Application.Teams.GetPlayers;
 using FixtureHub.Application.Teams.GetTeams;
 using FixtureHub.Infrastructure.Reading;
@@ -9,7 +10,8 @@ public class SortWhitelistTests
     public static TheoryData<string, IReadOnlyList<string>, IReadOnlyDictionary<string, string>> Whitelists() => new()
     {
         { nameof(GetTeamsQuery), GetTeamsQuery.SortFields, TeamReader.TeamSortColumns },
-        { nameof(GetPlayersQuery), GetPlayersQuery.SortFields, TeamReader.PlayerSortColumns }
+        { nameof(GetPlayersQuery), GetPlayersQuery.SortFields, TeamReader.PlayerSortColumns },
+        { nameof(GetMatchesQuery), GetMatchesQuery.SortFields, MatchReader.SortColumns }
     };
 
     [Theory]

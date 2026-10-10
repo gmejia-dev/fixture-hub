@@ -37,6 +37,7 @@ public sealed class DependencyInjectionTests : IDisposable
         services.AddSingleton<ITeamStandingRepository>(_standings);
         services.AddSingleton<IIdempotencyStore>(_idempotency);
         services.AddSingleton<ITeamReader>(_teamReader);
+        services.AddSingleton<IMatchReader>(new FakeMatchReader());
         services.AddApplication();
 
         _provider = services.BuildServiceProvider(new ServiceProviderOptions

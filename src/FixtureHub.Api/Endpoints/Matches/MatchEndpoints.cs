@@ -5,10 +5,13 @@ using FixtureHub.Application.Matches.CancelMatch;
 using FixtureHub.Application.Matches.CorrectMatchResult;
 using FixtureHub.Application.Matches.DeleteMatch;
 using FixtureHub.Application.Matches.FinishMatch;
+using FixtureHub.Application.Matches.GetMatchById;
+using FixtureHub.Application.Matches.GetMatches;
 using FixtureHub.Application.Matches.RegisterGoal;
 using FixtureHub.Application.Matches.RescheduleMatch;
 using FixtureHub.Application.Matches.ScheduleMatch;
 using FixtureHub.Application.Matches.StartMatch;
+using FixtureHub.Application.Pagination;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace FixtureHub.Api.Endpoints.Matches;
@@ -18,6 +21,9 @@ internal static class MatchEndpoints
     public static IEndpointRouteBuilder MapMatchEndpoints(this IEndpointRouteBuilder api)
     {
         var matches = api.MapGroup("/matches").WithTags("Matches");
+
+        matches.MapGet("/", GetMatches).WithName(nameof(GetMatches)).WithSummary("Lista los partidos, paginados y filtrados por equipo, estado y fechas.");
+        matches.MapGet("/{matchId:guid}", GetMatch).WithName(nameof(GetMatch)).WithSummary("Devuelve un partido con sus goles y correcciones.");
 
         matches.MapPost("/", ScheduleMatch).WithName(nameof(ScheduleMatch)).WithSummary("Programa un partido.");
         matches.MapPatch("/{matchId:guid}", RescheduleMatch).WithName(nameof(RescheduleMatch)).WithSummary("Cambia la fecha y hora de un partido programado.");
@@ -32,6 +38,32 @@ internal static class MatchEndpoints
         matches.MapPut("/{matchId:guid}/result", CorrectMatchResult).WithName(nameof(CorrectMatchResult)).WithSummary("Corrige los goles de un partido finalizado.");
 
         return api;
+    }
+
+    private static async Task<Results<Ok<PagedResult<MatchSummary>>, ProblemHttpResult>> GetMatches(
+        [AsParameters] PageParameters page,
+        Guid? teamId,
+        string? status,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        IQueryHandler<GetMatchesQuery, PagedResult<MatchSummary>> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(
+            new GetMatchesQuery(page.Number, page.Size, page.SortBy, page.SortDirection, teamId, status, from, to),
+            cancellationToken);
+
+        return result.ToOk();
+    }
+
+    private static async Task<Results<Ok<MatchDetails>, ProblemHttpResult>> GetMatch(
+        Guid matchId,
+        IQueryHandler<GetMatchByIdQuery, MatchDetails> handler,
+        CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new GetMatchByIdQuery(matchId), cancellationToken);
+
+        return result.ToOk();
     }
 
     private static async Task<Results<Created<CreatedResponse>, ProblemHttpResult>> ScheduleMatch(
