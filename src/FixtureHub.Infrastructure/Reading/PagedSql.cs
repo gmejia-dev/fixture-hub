@@ -9,7 +9,7 @@ internal sealed class PagedSql(
     string columns,
     IReadOnlyDictionary<string, string> sortColumns,
     string defaultSortBy,
-    string tieBreaker)
+    params IReadOnlyList<string> tieBreakers)
 {
     private readonly List<string> _conditions = [];
     private readonly DynamicParameters _parameters = new();
@@ -68,6 +68,6 @@ internal sealed class PagedSql(
 
         var direction = Paging.IsDescending(query.SortDirection) ? "DESC" : "ASC";
 
-        return $"{column} {direction}, {tieBreaker}";
+        return string.Join(", ", tieBreakers.Where(key => key != column).Prepend($"{column} {direction}"));
     }
 }

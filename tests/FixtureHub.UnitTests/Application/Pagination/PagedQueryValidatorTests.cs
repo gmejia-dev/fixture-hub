@@ -1,5 +1,7 @@
+using FixtureHub.Application.Standings.GetStandings;
 using FixtureHub.Application.Teams.GetPlayers;
 using FixtureHub.Application.Teams.GetTeams;
+using FixtureHub.Application.TopScorers.GetTopScorers;
 using FluentValidation.TestHelper;
 
 namespace FixtureHub.UnitTests.Application.Pagination;
@@ -91,10 +93,17 @@ public class PagedQueryValidatorTests
     [Fact]
     public void Validate_EachQuery_UsesItsOwnWhitelist()
     {
-        var result = new GetPlayersValidator().TestValidate(
-            new GetPlayersQuery(Guid.NewGuid(), 1, 10, "country", null, null));
+        new GetPlayersValidator()
+            .TestValidate(new GetPlayersQuery(Guid.NewGuid(), 1, 10, "country", null, null))
+            .ShouldHaveValidationErrorFor(query => query.SortBy).WithErrorCode("Query.InvalidSortBy");
 
-        result.ShouldHaveValidationErrorFor(query => query.SortBy).WithErrorCode("Query.InvalidSortBy");
+        new GetStandingsValidator()
+            .TestValidate(new GetStandingsQuery(1, 10, "goals", null, null))
+            .ShouldHaveValidationErrorFor(query => query.SortBy).WithErrorCode("Query.InvalidSortBy");
+
+        new GetTopScorersValidator()
+            .TestValidate(new GetTopScorersQuery(1, 10, "points", null, null, null))
+            .ShouldHaveValidationErrorFor(query => query.SortBy).WithErrorCode("Query.InvalidSortBy");
     }
 
     private static GetTeamsQuery Query() => new(1, 10, null, null, null, null);

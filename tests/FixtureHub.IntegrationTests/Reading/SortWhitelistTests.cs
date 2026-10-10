@@ -1,6 +1,8 @@
 using FixtureHub.Application.Matches.GetMatches;
+using FixtureHub.Application.Standings.GetStandings;
 using FixtureHub.Application.Teams.GetPlayers;
 using FixtureHub.Application.Teams.GetTeams;
+using FixtureHub.Application.TopScorers.GetTopScorers;
 using FixtureHub.Infrastructure.Reading;
 
 namespace FixtureHub.IntegrationTests.Reading;
@@ -11,7 +13,9 @@ public class SortWhitelistTests
     {
         { nameof(GetTeamsQuery), GetTeamsQuery.SortFields, TeamReader.TeamSortColumns },
         { nameof(GetPlayersQuery), GetPlayersQuery.SortFields, TeamReader.PlayerSortColumns },
-        { nameof(GetMatchesQuery), GetMatchesQuery.SortFields, MatchReader.SortColumns }
+        { nameof(GetMatchesQuery), GetMatchesQuery.SortFields, MatchReader.SortColumns },
+        { nameof(GetStandingsQuery), GetStandingsQuery.SortFields, StandingsReader.SortColumns },
+        { nameof(GetTopScorersQuery), GetTopScorersQuery.SortFields, TopScorerReader.SortColumns }
     };
 
     [Theory]

@@ -38,6 +38,8 @@ public sealed class DependencyInjectionTests : IDisposable
         services.AddSingleton<IIdempotencyStore>(_idempotency);
         services.AddSingleton<ITeamReader>(_teamReader);
         services.AddSingleton<IMatchReader>(new FakeMatchReader());
+        services.AddSingleton<IStandingsReader>(new FakeStandingsReader());
+        services.AddSingleton<ITopScorerReader>(new FakeTopScorerReader());
         services.AddApplication();
 
         _provider = services.BuildServiceProvider(new ServiceProviderOptions

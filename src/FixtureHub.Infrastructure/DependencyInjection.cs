@@ -32,6 +32,8 @@ public static class DependencyInjection
         services.AddSingleton(new SqlConnectionFactory(connectionString));
         services.AddScoped<ITeamReader, TeamReader>();
         services.AddScoped<IMatchReader, MatchReader>();
+        services.AddScoped<IStandingsReader, StandingsReader>();
+        services.AddScoped<ITopScorerReader, TopScorerReader>();
 
         return services;
     }
