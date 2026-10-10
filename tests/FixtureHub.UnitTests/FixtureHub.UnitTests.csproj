@@ -23,6 +23,7 @@
     <ProjectReference Include="..\..\src\FixtureHub.Domain\FixtureHub.Domain.csproj" />
     <ProjectReference Include="..\..\src\FixtureHub.Application\FixtureHub.Application.csproj" />
     <ProjectReference Include="..\..\src\FixtureHub.Infrastructure\FixtureHub.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\FixtureHub.Api\FixtureHub.Api.csproj" />
   </ItemGroup>
 
 </Project>

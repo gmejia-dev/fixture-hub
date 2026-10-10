@@ -22,7 +22,7 @@ internal static class IdempotencyDecorator
     {
         public Task<Result> HandleAsync(TCommand command, CancellationToken cancellationToken) =>
             RunAsync(
-                new Request<TCommand>(context.Key, command, store, timeProvider),
+                new Request<TCommand>(context, command, store, timeProvider),
                 () => inner.HandleAsync(command, cancellationToken),
                 serialize: _ => null,
                 replay: _ => Result.Success(),
@@ -40,7 +40,7 @@ internal static class IdempotencyDecorator
     {
         public Task<Result<TResponse>> HandleAsync(TCommand command, CancellationToken cancellationToken) =>
             RunAsync(
-                new Request<TCommand>(context.Key, command, store, timeProvider),
+                new Request<TCommand>(context, command, store, timeProvider),
                 () => inner.HandleAsync(command, cancellationToken),
                 serialize: result => JsonSerializer.Serialize(result.Value),
                 replay: response => Result.Success(JsonSerializer.Deserialize<TResponse>(response!)!),
@@ -57,7 +57,7 @@ internal static class IdempotencyDecorator
         CancellationToken cancellationToken)
         where TResult : Result
     {
-        if (request.Key is not { } key)
+        if (request.Context.Key is not { } key)
             return await handle();
 
         if (!await request.Store.TryLockAsync(key, cancellationToken))
@@ -68,7 +68,13 @@ internal static class IdempotencyDecorator
         var record = await request.Store.FindAsync(key, cancellationToken);
 
         if (record is not null && !record.IsExpired(now))
-            return record.Fingerprint == fingerprint ? replay(record.Response) : failure(IdempotencyErrors.KeyReused(key));
+        {
+            if (record.Fingerprint != fingerprint)
+                return failure(IdempotencyErrors.KeyReused(key));
+
+            request.Context.Replayed = true;
+            return replay(record.Response);
+        }
 
         if (record is not null)
             request.Store.Remove(record);
@@ -89,7 +95,7 @@ internal static class IdempotencyDecorator
     }
 
     private sealed record Request<TCommand>(
-        string? Key,
+        IdempotencyContext Context,
         TCommand Command,
         IIdempotencyStore Store,
         TimeProvider TimeProvider);

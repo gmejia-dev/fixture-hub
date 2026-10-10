@@ -7,6 +7,7 @@ using FixtureHub.Domain.Matches;
 using FixtureHub.Domain.Teams;
 using FixtureHub.Infrastructure;
 using FixtureHub.Infrastructure.Persistence;
+using FixtureHub.IntegrationTests.Api;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,12 +21,15 @@ public sealed class SqlServerFixture : IAsyncLifetime
         new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
 
     private ServiceProvider? _provider;
+    private FixtureHubApiFactory? _api;
+
+    public string ConnectionString { get; private set; } = string.Empty;
 
     public async Task InitializeAsync()
     {
         await _container.StartAsync();
 
-        var connectionString = new SqlConnectionStringBuilder(_container.GetConnectionString())
+        ConnectionString = new SqlConnectionStringBuilder(_container.GetConnectionString())
         {
             InitialCatalog = "FixtureHub"
         }.ConnectionString;
@@ -33,7 +37,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddApplication();
-        services.AddInfrastructure(connectionString);
+        services.AddInfrastructure(ConnectionString);
 
         _provider = services.BuildServiceProvider(new ServiceProviderOptions
         {
@@ -44,6 +48,12 @@ public sealed class SqlServerFixture : IAsyncLifetime
         await using var scope = CreateScope();
         await scope.ServiceProvider.GetRequiredService<FixtureHubDbContext>().Database.MigrateAsync();
     }
+
+    public IServiceProvider ApiServices => Api.Services;
+
+    private FixtureHubApiFactory Api => _api ??= new FixtureHubApiFactory(ConnectionString);
+
+    public HttpClient CreateClient() => Api.CreateClient();
 
     public AsyncServiceScope CreateScope() =>
         (_provider ?? throw new InvalidOperationException("La base de datos no se inició.")).CreateAsyncScope();
@@ -112,6 +122,9 @@ public sealed class SqlServerFixture : IAsyncLifetime
 
     public async Task DisposeAsync()
     {
+        if (_api is not null)
+            await _api.DisposeAsync();
+
         if (_provider is not null)
             await _provider.DisposeAsync();
 
