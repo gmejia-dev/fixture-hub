@@ -9,6 +9,7 @@ internal static class DependencyInjection
     public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddStructuredLogging(configuration);
+        services.AddTracing(configuration);
 
         services.AddOpenApi();
 

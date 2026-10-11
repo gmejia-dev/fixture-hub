@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using FixtureHub.Application.Abstractions.Events;
 using FixtureHub.Application.Abstractions.Persistence;
+using FixtureHub.Application.Diagnostics;
 using FixtureHub.Domain.Common;
 using FixtureHub.Infrastructure.Persistence.DomainEvents;
 using Microsoft.EntityFrameworkCore;
@@ -67,6 +68,9 @@ internal sealed partial class UnitOfWork(
 
                 context.DomainEvents.Add(record);
                 LogDomainEvent(logger, record.Type, record.Id);
+                Activity.Current?.AddEvent(new ActivityEvent(
+                    record.Type,
+                    tags: new ActivityTagsCollection { [ApplicationTracing.EventIdTag] = record.Id.ToString() }));
 
                 await dispatcher.DispatchAsync(domainEvent, cancellationToken);
             }

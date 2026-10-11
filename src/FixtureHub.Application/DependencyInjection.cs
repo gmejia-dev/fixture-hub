@@ -41,8 +41,11 @@ public static class DependencyInjection
         services.Decorate(typeof(ICommandHandler<,>), typeof(ValidationDecorator.CommandHandler<,>));
         services.Decorate(typeof(ICommandHandler<>), typeof(LoggingDecorator.CommandHandler<>));
         services.Decorate(typeof(ICommandHandler<,>), typeof(LoggingDecorator.CommandHandler<,>));
+        services.Decorate(typeof(ICommandHandler<>), typeof(TracingDecorator.CommandHandler<>));
+        services.Decorate(typeof(ICommandHandler<,>), typeof(TracingDecorator.CommandHandler<,>));
 
         services.Decorate(typeof(IQueryHandler<,>), typeof(ValidationDecorator.QueryHandler<,>));
+        services.Decorate(typeof(IQueryHandler<,>), typeof(TracingDecorator.QueryHandler<,>));
 
         return services;
     }

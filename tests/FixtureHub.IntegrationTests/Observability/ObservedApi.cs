@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using FixtureHub.Application.Authentication.Login;
 using FixtureHub.IntegrationTests.Api;
 using Microsoft.Extensions.DependencyInjection;
+using OpenTelemetry.Trace;
 using Serilog.Core;
 
 namespace FixtureHub.IntegrationTests.Observability;
@@ -11,18 +12,25 @@ public sealed class ObservedApi : IAsyncDisposable
 {
     private readonly FixtureHubApiFactory _factory;
 
-    public ObservedApi(SqlServerFixture database, Action<IServiceCollection>? configureServices = null)
+    public ObservedApi(
+        SqlServerFixture database,
+        Action<IServiceCollection>? configureServices = null,
+        IReadOnlyDictionary<string, string>? settings = null)
     {
         _factory = new FixtureHubApiFactory(
             database.ConnectionString,
-            configureServices: services =>
+            settings,
+            services =>
             {
                 services.AddSingleton<ILogEventSink>(Logs);
+                services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddProcessor(Spans));
                 configureServices?.Invoke(services);
             });
     }
 
     public CapturingSink Logs { get; } = new();
+
+    public SpanCollector Spans { get; } = new();
 
     public HttpClient CreateAnonymousClient() => _factory.CreateClient();
 
