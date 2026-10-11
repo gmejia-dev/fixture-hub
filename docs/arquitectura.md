@@ -23,8 +23,8 @@ FixtureHub sigue **Clean Architecture**: el código se organiza en capas concén
 |---|---|---|
 | `FixtureHub.Domain` | Reglas del torneo: entidades (`Team`, `Player`, `Match`, `Goal`), estados del partido, la fila de la tabla de posiciones (`TeamStanding`), eventos de dominio, errores y `Result` | Nada |
 | `FixtureHub.Application` | Casos de uso: commands, queries, sus handlers y decorators. Define los **contratos** que necesita (`IUnitOfWork`, repositorios, lectores) sin implementarlos | Domain |
-| `FixtureHub.Infrastructure` | Implementa los contratos: EF Core (escritura), Dapper (lectura), Unit of Work, idempotencia, seed, JWT | Application |
-| `FixtureHub.Api` | Entrada HTTP con Minimal APIs, middlewares, filtros, mapeo de `Result` a HTTP y *composition root* | Application, Infrastructure |
+| `FixtureHub.Infrastructure` | Implementa los contratos: EF Core (escritura), Dapper (lectura), Unit of Work, idempotencia, seed, usuarios y hash de contraseñas | Application |
+| `FixtureHub.Api` | Entrada HTTP con Minimal APIs, middlewares, filtros, JWT (emite y valida los tokens), mapeo de `Result` a HTTP y *composition root* | Application, Infrastructure |
 
 ### Qué no puede aparecer en cada capa
 
@@ -193,6 +193,7 @@ COMMIT  (la clave y los cambios del comando se confirman juntos; el candado se l
 - **Se guarda el valor del `Result`** (por ejemplo, el Id creado), no la respuesta HTTP, y solo de los éxitos. Un fallo hizo rollback, así que repetirlo es seguro.
 - **Mismo pedido en paralelo:** el segundo espera en el candado a que el primero termine y recibe su respuesta. Si la espera supera 10 s, 409 `Idempotency.RequestInProgress`.
 - Las claves expiran a las 24 horas; una clave vencida se reemplaza. La tabla tiene un índice por `ExpiresAt` para una limpieza periódica.
+- **Claves por usuario:** el filtro copia el usuario del token (`sub`) a `IdempotencyContext.Scope` y la clave se guarda como `{usuario}:{clave}`. Dos usuarios pueden usar la misma clave sin chocar, y ninguno recibe la respuesta guardada del otro. Los errores (`metadata.key`) muestran la clave que mandó el cliente, sin el prefijo.
 
 ## API REST
 
@@ -200,6 +201,7 @@ Minimal APIs agrupadas por recurso (`MapGroup`), todas bajo `/api`:
 
 | Recurso | Endpoints |
 |---|---|
+| Autenticación | `POST /auth/login` |
 | Equipos | `GET /teams`, `GET /teams/{teamId}`, `POST /teams`, `PUT /teams/{teamId}`, `DELETE /teams/{teamId}` |
 | Jugadores | `GET /teams/{teamId}/players`, `POST /teams/{teamId}/players`, `PUT /teams/{teamId}/players/{playerId}`, `DELETE /teams/{teamId}/players/{playerId}` |
 | Partidos | `GET /matches`, `GET /matches/{matchId}`, `POST /matches`, `PATCH /matches/{matchId}`, `DELETE /matches/{matchId}`, `POST /matches/{matchId}/start`, `/finish`, `/cancel` |
@@ -234,9 +236,42 @@ Cada endpoint hace tres cosas y nada más: arma el command o la query con lo que
 - El `traceId` son los 32 caracteres del trace W3C, el mismo valor que se guarda en la tabla `DomainEvents`. Si el cliente manda un header `traceparent`, se respeta.
 - `GlobalExceptionHandler` (`IExceptionHandler`): un body o un parámetro mal formado (JSON inválido, `"diez"` en un número) es 400 `Request.Malformed`; cualquier otra excepción es 500 `Server.Unexpected`, sin el mensaje de la excepción. `RouteHandlerOptions.ThrowOnBadRequest = true` hace que los errores de binding también pasen por ahí, en todos los entornos.
 
+## Seguridad
+
+Las lecturas (`GET`) son públicas. Las escrituras (`POST`, `PUT`, `PATCH`, `DELETE`) exigen un JWT con el rol `Admin` en el header `Authorization: Bearer <token>`.
+
+```
+POST /api/auth/login { username, password }
+ → [Application] IQueryHandler<LoginQuery, AuthToken>: Validation → LoginHandler
+     IUserReader (Dapper: Users)  →  IPasswordHasher.Verify (PBKDF2)  →  ITokenIssuer.Issue
+ ← 200 { accessToken, tokenType: "Bearer", expiresAt }      401 Auth.InvalidCredentials
+
+POST /api/teams  (Authorization: Bearer …)
+ → UseAuthentication: JwtBearer valida firma (HS256), emisor, audiencia y vencimiento → HttpContext.User
+ → UseAuthorization: el endpoint pide el rol Admin → 401 Auth.Unauthenticated / 403 Auth.Forbidden
+ → filtro Idempotency-Key (clave por usuario) → endpoint → command
+```
+
+| Pieza | Capa | Qué hace |
+|---|---|---|
+| `LoginQuery`, `LoginHandler`, `LoginValidator`, `AuthToken` | Application | El caso de uso. Es una **query**: no cambia estado, así que no abre transacción ni usa idempotencia (pasa solo por el decorator de validación). |
+| `IUserReader`, `IPasswordHasher`, `ITokenIssuer` | Application | Contratos que necesita el login |
+| `UserReader` | Infrastructure | Lee el usuario con Dapper |
+| `Pbkdf2PasswordHasher` | Infrastructure | PBKDF2-HMAC-SHA256, 600.000 iteraciones, sal aleatoria de 16 bytes, comparación en tiempo constante. Guarda `PBKDF2-SHA256$iteraciones$sal$hash`, así que se pueden subir las iteraciones sin invalidar los hashes viejos. |
+| `AdminAccountInitializer` | Infrastructure | Al iniciar, crea el administrador de `Admin:Username` / `Admin:Password` si no existe, o actualiza su hash si la contraseña cambió |
+| `JwtOptions`, `JwtTokenIssuer` | Api | Emiten el token. Las mismas opciones construyen los `TokenValidationParameters`, así que emisor y validador no pueden quedar desalineados. |
+| `AddJwtAuthentication` | Api | `JwtBearer` + autorización; valida la configuración al arrancar (`ValidateOnStart`) |
+| `RequireAdminForWrites` | Api | Convención del grupo `/api`: todo endpoint que no sea solo `GET` recibe `[Authorize(Roles = "Admin")]`. Un endpoint nuevo queda protegido sin acordarse. |
+| `ProblemDetailsEnricher` | Api | El 401 y el 403 del middleware salen como ProblemDetails con `errorCode` (`Auth.Unauthenticated`, `Auth.Forbidden`) |
+
+- **Token:** HS256, 60 minutos (`Jwt:ExpirationMinutes`), con `sub` (Id del usuario), `name`, `role` y `jti`. Se valida firma, algoritmo (solo HS256: un token `alg: none` se rechaza), emisor, audiencia y vencimiento con 30 s de tolerancia. `MapInboundClaims = false` deja los claims con sus nombres JWT.
+- **El login no revela qué usuarios existen:** usuario inexistente y contraseña incorrecta dan la misma respuesta, y en los dos casos se calcula un PBKDF2 para que el tiempo de respuesta tampoco los distinga.
+- **El login queda fuera del filtro de idempotencia:** está en su propio grupo, porque repetirlo no cambia nada.
+- **Secretos fuera del repositorio:** `Admin:Password` y `Jwt:SigningKey` vienen de user-secrets en desarrollo o de variables de entorno (`Admin__Password`, `Jwt__SigningKey`; Docker Compose las toma de un `.env`). Si faltan o son débiles (contraseña de menos de 12 caracteres, clave de menos de 32 bytes), la Api no arranca y el mensaje nombra el ajuste. Un test impide que aparezcan en los `appsettings*.json`.
+
 ## Base de datos al iniciar
 
-`InitializeDatabaseAsync` aplica las migraciones (`Database:ApplyMigrations`) y carga el seed (`Database:Seed`). Las dos opciones están apagadas en `appsettings.json` y encendidas en Development.
+`InitializeDatabaseAsync` aplica las migraciones (`Database:ApplyMigrations`), asegura el usuario administrador (siempre) y carga el seed (`Database:Seed`). Las dos opciones están apagadas en `appsettings.json` y encendidas en Development.
 
 El seed (`DatabaseSeeder`) **no inserta filas a mano**: envía los mismos commands que la API (crear equipos y jugadores, programar, iniciar, registrar goles, anular, finalizar, cancelar), cada uno en su propio scope, como si fueran requests. Pasan por validación, transacción y eventos, así que la tabla de posiciones se arma sola y ninguna regla del dominio se salta. Solo corre si la base no tiene equipos.
 
@@ -255,7 +290,8 @@ El seed (`DatabaseSeeder`) **no inserta filas a mano**: envía los mismos comman
 
 ```
 HTTP
- → [Api] manejador de excepciones → (JWT, #4) → binding del body → filtro Idempotency-Key → endpoint
+ → [Api] manejador de excepciones → JWT (autenticación) → rol Admin (autorización)
+         → binding del body → filtro Idempotency-Key (clave por usuario) → endpoint
  → [Application] ICommandHandler<RegisterGoalCommand, Guid> (ya decorado, por inyección)
      Logging → Validation → Transaction (BEGIN) → Idempotency (candado + clave)
      → RegisterGoalHandler
@@ -296,6 +332,8 @@ Las reglas de dependencia se verifican con tests de arquitectura (`tests/Fixture
 | `Application_HandlersOfTheContract_AreInternal` y `Application_Validators_AreInternal` | Handlers de comandos, de queries, de eventos y validadores son `internal` |
 | `EveryCommand_HasExactlyOneHandler` y `EveryQuery_HasExactlyOneHandler` | Ningún command ni query queda sin handler (fallaría en tiempo de ejecución) ni con dos |
 | `AppSettingsFile_IsValidJson` | Los `appsettings*.json` de la Api se pueden leer; los tests de integración corren en otro entorno y no cargan `appsettings.Development.json` |
+| `AppSettingsFile_DoesNotContainSecrets` | Ni `Admin:Password` ni `Jwt:SigningKey` aparecen en los `appsettings*.json` |
+| `HttpFile_DoesNotContainTheAdminPassword` | `FixtureHub.Api.http` no se sube con la contraseña escrita |
 
 Cada regla que filtra tipos verifica primero que el filtro seleccione los tipos esperados (**anti-vacío**). Sin esa comprobación, un filtro mal escrito no selecciona nada y la regla pasa sin revisar ningún tipo.
 

@@ -23,6 +23,9 @@ internal static class HttpClientExtensions
     public static Task<HttpResponseMessage> PostJsonWithoutKeyAsync(this HttpClient client, string url, object? body = null) =>
         client.SendAsync(new HttpRequestMessage(HttpMethod.Post, url) { Content = ToContent(body) });
 
+    public static Task<HttpResponseMessage> LoginAsync(this HttpClient client, string username, string password) =>
+        client.PostJsonWithoutKeyAsync("/api/auth/login", new { username, password });
+
     public static async Task<Guid> CreateAsync(this HttpClient client, string url, object body)
     {
         var response = await client.PostJsonAsync(url, body);

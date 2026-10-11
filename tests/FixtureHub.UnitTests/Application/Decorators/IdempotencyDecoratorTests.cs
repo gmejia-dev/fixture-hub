@@ -47,6 +47,45 @@ public class IdempotencyDecoratorTests
     }
 
     [Fact]
+    public async Task HandleAsync_KeyWithAScope_LocksAndStoresTheKeyPrefixedWithTheScope()
+    {
+        _context.Scope = "usuario-a";
+
+        await Decorate(new StubHandler(Guid.NewGuid())).HandleAsync(new CreateThing("Copa"), CancellationToken.None);
+
+        Assert.Equal([$"usuario-a:{Key}"], _store.Locks);
+        Assert.Equal($"usuario-a:{Key}", Assert.Single(_store.All).Key);
+    }
+
+    [Fact]
+    public async Task HandleAsync_SameKeyInAnotherScope_RunsTheCommandAgainWithoutReplaying()
+    {
+        var handler = new StubHandler(Guid.NewGuid());
+        _context.Scope = "usuario-a";
+        await Decorate(handler).HandleAsync(new CreateThing("Copa"), CancellationToken.None);
+
+        _context.Scope = "usuario-b";
+        await Decorate(handler).HandleAsync(new CreateThing("Copa"), CancellationToken.None);
+
+        Assert.Equal(2, handler.Calls);
+        Assert.False(_context.Replayed);
+        Assert.Equal(2, _store.All.Count);
+    }
+
+    [Fact]
+    public async Task HandleAsync_KeyReusedInTheSameScope_ReportsTheKeyOfTheClientWithoutTheScope()
+    {
+        var handler = new StubHandler(Guid.NewGuid());
+        _context.Scope = "usuario-a";
+        await Decorate(handler).HandleAsync(new CreateThing("Copa"), CancellationToken.None);
+
+        var result = await Decorate(handler).HandleAsync(new CreateThing("Liga"), CancellationToken.None);
+
+        Assert.Equal("Idempotency.KeyReused", result.Error.Code);
+        Assert.Equal(Key, result.Error.Metadata?["key"]);
+    }
+
+    [Fact]
     public async Task HandleAsync_SameKeyAndSameCommand_ReturnsTheStoredValueWithoutCallingTheHandlerAgain()
     {
         var id = Guid.NewGuid();

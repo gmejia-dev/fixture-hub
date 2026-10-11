@@ -1,9 +1,11 @@
 using FixtureHub.Application;
+using FixtureHub.Application.Abstractions.Authentication;
 using FixtureHub.Application.Abstractions.Events;
 using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Abstractions.Messaging;
 using FixtureHub.Application.Abstractions.Persistence;
 using FixtureHub.Application.Abstractions.Reading;
+using FixtureHub.Application.Authentication.Login;
 using FixtureHub.Application.Decorators;
 using FixtureHub.Application.Teams.CreateTeam;
 using FixtureHub.Application.Pagination;
@@ -40,6 +42,9 @@ public sealed class DependencyInjectionTests : IDisposable
         services.AddSingleton<IMatchReader>(new FakeMatchReader());
         services.AddSingleton<IStandingsReader>(new FakeStandingsReader());
         services.AddSingleton<ITopScorerReader>(new FakeTopScorerReader());
+        services.AddSingleton<IUserReader>(new FakeUserReader());
+        services.AddSingleton<IPasswordHasher>(new FakePasswordHasher());
+        services.AddSingleton<ITokenIssuer>(new FakeTokenIssuer());
         services.AddApplication();
 
         _provider = services.BuildServiceProvider(new ServiceProviderOptions
@@ -67,6 +72,16 @@ public sealed class DependencyInjectionTests : IDisposable
         var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<DeleteTeamCommand>>();
 
         Assert.IsType<LoggingDecorator.CommandHandler<DeleteTeamCommand>>(handler);
+    }
+
+    [Fact]
+    public void AddApplication_Login_IsAQueryWithValidationOnlyWithoutTransactionOrIdempotency()
+    {
+        using var scope = _provider.CreateScope();
+
+        var handler = scope.ServiceProvider.GetRequiredService<IQueryHandler<LoginQuery, AuthToken>>();
+
+        Assert.IsType<ValidationDecorator.QueryHandler<LoginQuery, AuthToken>>(handler);
     }
 
     [Fact]

@@ -3,6 +3,8 @@ namespace FixtureHub.Application.Abstractions.Idempotency;
 public sealed class IdempotencyRecord
 {
     public const int KeyMaxLength = 100;
+    public const int ScopeMaxLength = 36;
+    public const int StorageKeyMaxLength = ScopeMaxLength + 1 + KeyMaxLength;
     public const int FingerprintLength = 64;
 
     public IdempotencyRecord(

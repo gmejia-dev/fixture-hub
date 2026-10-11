@@ -57,15 +57,15 @@ internal static class IdempotencyDecorator
         CancellationToken cancellationToken)
         where TResult : Result
     {
-        if (request.Context.Key is not { } key)
+        if (request.Context is not { Key: { } key, StorageKey: { } storageKey })
             return await handle();
 
-        if (!await request.Store.TryLockAsync(key, cancellationToken))
+        if (!await request.Store.TryLockAsync(storageKey, cancellationToken))
             return failure(IdempotencyErrors.RequestInProgress(key));
 
         var fingerprint = Fingerprint(request.Command);
         var now = request.TimeProvider.GetUtcNow();
-        var record = await request.Store.FindAsync(key, cancellationToken);
+        var record = await request.Store.FindAsync(storageKey, cancellationToken);
 
         if (record is not null && !record.IsExpired(now))
         {
@@ -82,7 +82,7 @@ internal static class IdempotencyDecorator
         var result = await handle();
 
         if (result.IsSuccess)
-            request.Store.Add(new IdempotencyRecord(key, fingerprint, serialize(result), now, now + Retention));
+            request.Store.Add(new IdempotencyRecord(storageKey, fingerprint, serialize(result), now, now + Retention));
 
         return result;
     }

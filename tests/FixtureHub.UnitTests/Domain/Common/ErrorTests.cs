@@ -11,6 +11,8 @@ public class ErrorTests
         Assert.Equal(ErrorType.Validation, Error.Validation("Code", "Message").Type);
         Assert.Equal(ErrorType.NotFound, Error.NotFound("Code", "Message").Type);
         Assert.Equal(ErrorType.Conflict, Error.Conflict("Code", "Message").Type);
+        Assert.Equal(ErrorType.Unauthorized, Error.Unauthorized("Code", "Message").Type);
+        Assert.Equal(ErrorType.Forbidden, Error.Forbidden("Code", "Message").Type);
     }
 
     [Fact]

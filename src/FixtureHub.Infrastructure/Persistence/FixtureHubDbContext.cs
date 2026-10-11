@@ -2,6 +2,7 @@ using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Domain.Matches;
 using FixtureHub.Domain.Standings;
 using FixtureHub.Domain.Teams;
+using FixtureHub.Infrastructure.Authentication;
 using FixtureHub.Infrastructure.Persistence.DomainEvents;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,6 +19,8 @@ internal sealed class FixtureHubDbContext(DbContextOptions<FixtureHubDbContext> 
     public DbSet<DomainEventRecord> DomainEvents => Set<DomainEventRecord>();
 
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
+
+    public DbSet<UserAccount> Users => Set<UserAccount>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder) =>
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(FixtureHubDbContext).Assembly);

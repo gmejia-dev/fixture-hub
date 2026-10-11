@@ -22,6 +22,9 @@ await app.Services.InitializeDatabaseAsync(
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 
