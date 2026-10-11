@@ -33,9 +33,10 @@ internal sealed class IdempotencyStore(FixtureHubDbContext context) : IIdempoten
     }
 
     public Task<IdempotencyRecord?> FindAsync(string key, CancellationToken cancellationToken) =>
-        context.IdempotencyRecords.FirstOrDefaultAsync(record => record.Key == key, cancellationToken);
+        context.IdempotencyRecords.AsNoTracking().FirstOrDefaultAsync(record => record.Key == key, cancellationToken);
 
     public void Add(IdempotencyRecord record) => context.IdempotencyRecords.Add(record);
 
-    public void Remove(IdempotencyRecord record) => context.IdempotencyRecords.Remove(record);
+    public Task RemoveAsync(string key, CancellationToken cancellationToken) =>
+        context.IdempotencyRecords.Where(record => record.Key == key).ExecuteDeleteAsync(cancellationToken);
 }

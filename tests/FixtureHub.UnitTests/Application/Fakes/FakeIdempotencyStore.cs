@@ -23,5 +23,9 @@ internal sealed class FakeIdempotencyStore : IIdempotencyStore
 
     public void Add(IdempotencyRecord record) => _records.Add(record.Key, record);
 
-    public void Remove(IdempotencyRecord record) => _records.Remove(record.Key);
+    public Task RemoveAsync(string key, CancellationToken cancellationToken)
+    {
+        _records.Remove(key);
+        return Task.CompletedTask;
+    }
 }

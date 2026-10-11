@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddScoped<ITeamStandingRepository, TeamStandingRepository>();
 
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
+        services.AddHostedService<ExpiredIdempotencyRecordsCleanup>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
