@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using FixtureHub.Application.Abstractions.Reading;
 using FixtureHub.Application.Teams.CreateTeam;
 using FixtureHub.IntegrationTests.Api;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog.Events;
 
@@ -68,14 +69,8 @@ public sealed class RequestLoggingTests(SqlServerFixture database) : IAsyncLifet
     {
         var client = await _api.CreateAdminClientAsync();
         var traceParent = TraceParent.CreateRandom();
-        var request = new HttpRequestMessage(HttpMethod.Post, "/api/teams")
-        {
-            Content = JsonContent.Create(new { name = TestData.UniqueName("Los Halcones"), country = "El Salvador" })
-        };
-        request.Headers.Add(HttpClientExtensions.IdempotencyKeyHeader, Guid.NewGuid().ToString());
-        request.Headers.Add(TraceParent.Header, traceParent.Value);
 
-        var response = await client.SendAsync(request);
+        var response = await client.SendAsync(CreateTeamRequest(traceParent));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         await _api.Logs.WaitForAsync(logEvent => logEvent.IsRequestLog("/api/teams") && logEvent.BelongsTo(traceParent.TraceId));
@@ -86,6 +81,37 @@ public sealed class RequestLoggingTests(SqlServerFixture database) : IAsyncLifet
         Assert.Contains(typeof(CreateTeamCommand).FullName, sources);
         Assert.Contains(UnitOfWorkSource, sources);
         Assert.Contains(LogEventExtensions.RequestLoggingSource, sources);
+    }
+
+    [Fact]
+    public async Task DomainEventLog_CarriesTheTypeAndTheIdOfTheStoredEvent()
+    {
+        var client = await _api.CreateAdminClientAsync();
+        var traceParent = TraceParent.CreateRandom();
+
+        var response = await client.SendAsync(CreateTeamRequest(traceParent));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var log = await _api.Logs.WaitForAsync(logEvent =>
+            logEvent.BelongsTo(traceParent.TraceId) && Equals(logEvent.Scalar("SourceContext"), UnitOfWorkSource));
+        var storedId = await database.QueryAsync(context => context.DomainEvents
+            .Where(record => record.TraceId == traceParent.TraceId)
+            .Select(record => record.Id)
+            .SingleAsync());
+        Assert.Equal("TeamCreated", log.Scalar("DomainEventType"));
+        Assert.Equal(storedId, log.Scalar("DomainEventId"));
+    }
+
+    private static HttpRequestMessage CreateTeamRequest(TraceParent traceParent)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/teams")
+        {
+            Content = JsonContent.Create(new { name = TestData.UniqueName("Los Halcones"), country = "El Salvador" })
+        };
+        request.Headers.Add(HttpClientExtensions.IdempotencyKeyHeader, Guid.NewGuid().ToString());
+        request.Headers.Add(TraceParent.Header, traceParent.Value);
+
+        return request;
     }
 
     public Task InitializeAsync() => Task.CompletedTask;
