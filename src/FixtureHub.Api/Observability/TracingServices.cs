@@ -1,3 +1,4 @@
+using FixtureHub.Api.Endpoints.Health;
 using FixtureHub.Application.Diagnostics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -17,7 +18,8 @@ internal static class TracingServices
             {
                 tracing
                     .AddSource(ApplicationTracing.SourceName)
-                    .AddAspNetCoreInstrumentation()
+                    .AddAspNetCoreInstrumentation(options =>
+                        options.Filter = context => !HealthEndpoints.IsHealthCheck(context.Request.Path))
                     .AddSqlClientInstrumentation();
 
                 if (!string.IsNullOrWhiteSpace(configuration[OtlpEndpointKey]))

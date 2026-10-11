@@ -53,6 +53,8 @@ public static class DependencyInjection
 
         services.AddScoped<DatabaseSeeder>();
 
+        services.AddHealthChecks().AddDbContextCheck<FixtureHubDbContext>();
+
         return services;
     }
 }
