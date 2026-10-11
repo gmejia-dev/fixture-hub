@@ -1,11 +1,12 @@
 using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Infrastructure;
 using FixtureHub.Infrastructure.Idempotency;
-using FixtureHub.IntegrationTests.Api;
+using FixtureHub.IntegrationTests.Observability;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using Serilog.Events;
 
 namespace FixtureHub.IntegrationTests.Idempotency;
 
@@ -50,17 +51,18 @@ public sealed class ExpiredIdempotencyRecordsCleanupTests(SqlServerFixture datab
     }
 
     [Fact]
-    public async Task Api_WhenItStarts_DeletesTheExpiredKeys()
+    public async Task Api_WhenItStarts_DeletesTheExpiredKeysAndLogsHowMany()
     {
         var expired = NewRecord(expiresAt: DateTimeOffset.UtcNow.AddHours(-1));
         await AddAsync([expired]);
 
-        await using var api = new FixtureHubApiFactory(database.ConnectionString);
-        api.CreateClient().Dispose();
+        await using var api = new ObservedApi(database);
+        api.CreateAnonymousClient().Dispose();
 
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while ((await ExistingKeysAsync([expired])).Count > 0 && DateTime.UtcNow < deadline)
-            await Task.Delay(50);
+        var log = await api.Logs.WaitForAsync(logEvent =>
+            Equals(logEvent.Scalar("SourceContext"), typeof(ExpiredIdempotencyRecordsCleanup).FullName));
+        Assert.Equal(LogEventLevel.Information, log.Level);
+        Assert.True(log.Scalar("Count") is int count && count >= 1);
         Assert.Empty(await ExistingKeysAsync([expired]));
     }
 

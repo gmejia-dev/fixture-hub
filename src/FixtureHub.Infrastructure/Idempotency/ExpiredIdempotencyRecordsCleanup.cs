@@ -54,6 +54,7 @@ internal sealed partial class ExpiredIdempotencyRecordsCleanup(
         {
             deleted = await records
                 .Where(record => record.ExpiresAt <= now)
+                .OrderBy(record => record.ExpiresAt)
                 .Take(BatchSize)
                 .ExecuteDeleteAsync(cancellationToken);
             total += deleted;
