@@ -150,9 +150,44 @@ Límites conocidos:
 
 Límite conocido: si dos instancias de la Api arrancan a la vez sobre una base vacía, las dos intentan el seed y la segunda falla por el nombre único de los equipos. Con una sola instancia (el caso de la demo y de docker-compose) no ocurre; en producción el seed sería un paso de despliegue aparte.
 
+## Frontend
+
+| Decisión | Motivo |
+|---|---|
+| **Next.js 16 con App Router**, versión fija 16.3.8 | Next.js lo pide el enunciado. App Router es el modelo actual (Server Components y Server Actions). Se fijó el último parche de la línea 16.3 en lugar de la 16.4.0, publicada cinco días antes de empezar. |
+| **El navegador nunca llama a la Api**: lee con Server Components y escribe con Server Actions | El token no tiene que estar en JavaScript del navegador (no lo puede robar un script inyectado), no hace falta CORS y la Api no se expone a internet. La dirección de la Api se lee al ejecutarse (`API_BASE_URL`), así que la misma imagen de Docker sirve en cualquier entorno. Costo: cada página pasa por el servidor de Next.js. |
+| **JWT en una cookie `HttpOnly`, `Secure`, `SameSite=Lax`**, con el vencimiento del token | `HttpOnly`: JavaScript no la puede leer. `Secure`: solo viaja por HTTPS (los navegadores aceptan `http://localhost` como seguro). `SameSite=Lax`: no viaja en peticiones de otros sitios, una defensa contra CSRF que se suma a la comprobación de `Origin` que hace Next.js en cada Server Action. |
+| **El frontend no valida la firma del token**; solo lee `name`, `role` y `exp` | Para validarla necesitaría la clave de firma, que solo debe tener la Api. Esos datos sirven para mostrar u ocultar la interfaz de Admin; la seguridad la pone la Api en cada escritura. Si la Api responde 401 (token vencido o inválido), el frontend borra la cookie y lleva al login con la página a la que debe volver. |
+| **Cada Server Action valida lo que recibe** antes de llamar a la Api | Una Server Action es un endpoint `POST` público aunque el botón esté oculto. Los Ids se validan como Guid antes de armar la ruta (un `../` no puede cambiar el endpoint) y el destino después del login debe ser una ruta interna (sin redirecciones abiertas). |
+| **Filtros, orden y página en la URL** | Las listas se pueden compartir, el botón Atrás funciona y los filtros son un formulario `GET` que no necesita JavaScript. El orden se valida contra la misma lista blanca que la Api; un valor inválido en la URL vuelve al valor por defecto. |
+| **Los errores de la Api son resultados, no excepciones** (`ApiResult`) | Como el Result Pattern del backend: la página decide qué mostrar (un 404 lleva a la página de no encontrado; otro error, al mensaje traducido con el código de seguimiento). Las excepciones quedan para lo inesperado (`error.tsx`). |
+| **`Idempotency-Key` generada por el servidor al mostrar el formulario** | La clave identifica *ese* envío: se reutiliza si el usuario reintenta (doble clic, red caída, error corregido) y se renueva cuando la operación sale bien. Como la Api solo guarda las respuestas exitosas, reintentar con datos corregidos después de un error no choca. Generarla en el servidor evita una diferencia entre el HTML del servidor y el del navegador. |
+| **Catálogos de idiomas propios en JSON**, sin librería | Son pocas pantallas y una función de 20 líneas cubre lo necesario (claves planas y marcadores `{valor}`). Al ser JSON, el test de .NET los lee directamente. TypeScript obliga a que `en.json` tenga todas las claves de `es.json` y a que el código solo use claves que existen. |
+| **Idioma:** el elegido (cookie) → el del navegador (`Accept-Language`) → español | Lo pide la issue. El cambio de idioma es un formulario: funciona sin JavaScript y el servidor vuelve a armar la página en el idioma nuevo. |
+| **Los límites constantes se escriben en el texto** ("no puede superar 100 caracteres") | Los errores de validación llegan por campo y solo con el código, sin `metadata`. Los límites son constantes del dominio, así que el catálogo los escribe; un test de .NET compara el número del texto con el del dominio y falla si alguien cambia uno sin el otro. Los valores que sí cambian (el dorsal repetido, el nombre del equipo) usan marcadores con la `metadata`. |
+| **Fechas en la zona horaria del torneo** (`TOURNAMENT_TIME_ZONE`, por defecto `America/El_Salvador`) | El torneo se juega en un lugar: "19:00" significa lo mismo para todos. El servidor formatea con esa zona, así que el HTML no depende de la zona del contenedor ni del navegador. Al programar un partido, la hora se convierte a UTC con el desfase vigente en esa fecha. |
+| **Goles en vivo por refresco periódico**: `router.refresh()` cada 10 s en el partido en curso | Vuelve a pedir la página al servidor sin recargar el navegador ni perder lo que se está escribiendo en un formulario. Se pausa con la pestaña oculta. Es suficiente para un torneo interno; la alternativa (SignalR o Server-Sent Events) está en extensiones futuras. |
+| **La Api es la que valida**; el formulario solo pide los campos obligatorios y el tipo numérico | Las reglas viven en un solo lugar. Los mensajes de la Api se muestran traducidos junto a cada campo. |
+| **Sin `loading.tsx`** | Con una página de carga, Next.js empieza a enviar la respuesta antes de saber si el equipo existe, y un equipo inexistente responde 200 en vez de 404. La Api responde en milisegundos, así que el indicador de carga no aporta y se prefiere el 404 real. |
+| **Tailwind CSS sin librería de componentes** | La interfaz no se evalúa: clases utilitarias y unos pocos componentes propios bastan. |
+| **Sin fuentes de Google, salida `standalone`, sin `X-Powered-By`** | El build no descarga nada de internet (importa en Docker), `standalone` produce un servidor de Node.js mínimo (unos 22 MB) para la imagen de #6, y no se anuncia la tecnología del servidor. |
+| **Prettier, ESLint y saltos de línea LF** en el frontend | Formato y reglas de React verificables con un comando, como `dotnet format`. `frontend/.gitattributes` fija LF para que Git en Windows no convierta los archivos a CRLF y Prettier no los marque como mal formateados. |
+
+Límites conocidos:
+
+- **Actualización por consulta periódica**, no por eventos: un gol aparece en las pantallas abiertas hasta 10 segundos después.
+- **Los selectores de equipos cargan hasta 100 equipos** (el máximo por página de la Api). Para más, harían falta un buscador o paginación en el selector.
+- **Sin pruebas de punta a punta en el navegador** (Playwright): los flujos se verificaron a mano contra la Api real. Son el siguiente paso de las pruebas del frontend.
+- **La cookie `Secure` exige HTTPS fuera de `localhost`.** En producción el frontend va detrás de HTTPS.
+- **Un jugador dado de baja que marcó goles** no aparece en el selector del formulario de corrección de resultado.
+- **Las trazas empiezan en la Api:** el servidor de Next.js no propaga `traceparent`, así que la traza no incluye el tramo del frontend. Ver extensiones futuras.
+
 ## Extensiones futuras
 
 - **Varios torneos:** entidad `Tournament` con inscripción de equipos (un equipo una sola vez por torneo). La tabla y los goleadores pasarían a calcularse por torneo.
 - **Jugadores en varios equipos** (por ejemplo, selección y club): relación N:M mediante `TeamMembership`, con el dorsal por membresía.
 - **Usuarios y roles:** endpoints para administrar usuarios, más roles (por ejemplo, un árbitro que solo registra goles de su partido), refresh tokens y rate limiting en el login.
 - **Observabilidad completa:** métricas con Prometheus y Grafana, logs centralizados y un OpenTelemetry Collector que reciba logs, métricas y trazas y decida el muestreo.
+- **Frontend en tiempo real:** SignalR o Server-Sent Events desde la Api para empujar los goles en lugar de consultar cada 10 segundos.
+- **Trazas desde el frontend:** OpenTelemetry en Next.js (`instrumentation.ts`) para que la traza empiece en el servidor de Next.js y continúe en la Api con `traceparent`.
+- **Pruebas de punta a punta:** Playwright contra la Api y el frontend levantados con docker-compose.

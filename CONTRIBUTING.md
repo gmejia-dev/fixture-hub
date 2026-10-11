@@ -67,6 +67,16 @@ El código y los tests usan **PascalCase**, siguiendo las [convenciones de C#](h
 | Propiedades JSON | camelCase (por defecto en ASP.NET Core) | `totalRecords` |
 | Ramas y carpetas del repositorio | kebab-case | `feature/solucion-dominio` |
 
+En el frontend (TypeScript) se siguen las convenciones de React y Next.js:
+
+| Elemento | Convención | Ejemplo |
+|---|---|---|
+| Archivos y carpetas | kebab-case (las rutas de Next.js son carpetas) | `site-header.tsx`, `app/top-scorers/page.tsx` |
+| Componentes y tipos | PascalCase | `ProblemAlert`, `ActionState` |
+| Funciones, variables y Server Actions | camelCase | `getStandings`, `registerGoal` |
+| Tests | `*.test.ts` junto al archivo que prueban, con la descripción en español | `paging.test.ts` |
+| Claves de traducción | `área.clave`; los errores, `error.{códigoDeLaApi}` | `teams.create`, `error.Team.NameTaken` |
+
 ## Pull requests
 
 - Título con el mismo formato de los commits. Al hacer squash, ese título queda como el commit en `main`.
@@ -74,3 +84,6 @@ El código y los tests usan **PascalCase**, siguiendo las [convenciones de C#](h
 - Antes de integrar:
   - `dotnet build` sin errores ni warnings (los warnings se tratan como errores).
   - `dotnet test` en verde.
+  - `dotnet format whitespace FixtureHub.slnx --verify-no-changes` sin cambios.
+  - En `frontend/`: `npm run lint`, `npm run typecheck`, `npm test` y `npm run format:check` en verde.
+  - Si la Api agrega un código de error, su traducción en `frontend/src/i18n/messages/es.json` y `en.json` (`FrontendCatalogTests` falla si falta).
