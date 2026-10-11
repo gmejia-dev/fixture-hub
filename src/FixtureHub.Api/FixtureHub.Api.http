@@ -146,6 +146,9 @@ Content-Type: application/json
 ### Detalle del partido: goles (también los anulados) y correcciones
 GET {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}
 
+### Observabilidad: la respuesta trae el header X-Trace-Id; con ese valor se busca la traza en Jaeger (http://localhost:16686) y los logs del request
+GET {{host}}/api/matches?status=InProgress
+
 ### Errores: POST sin Idempotency-Key -> 400 Idempotency.KeyRequired
 POST {{host}}/api/teams
 Authorization: Bearer {{login.response.body.$.accessToken}}

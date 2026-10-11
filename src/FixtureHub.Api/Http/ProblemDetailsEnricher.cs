@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using FixtureHub.Api.Observability;
 using FixtureHub.Application.Errors;
 using FixtureHub.Domain.Common;
 
@@ -19,7 +19,7 @@ internal static class ProblemDetailsEnricher
         var problem = context.ProblemDetails;
 
         problem.Instance ??= context.HttpContext.Request.Path.Value;
-        problem.Extensions[TraceIdKey] = Activity.Current?.TraceId.ToString() ?? context.HttpContext.TraceIdentifier;
+        problem.Extensions[TraceIdKey] = RequestTrace.IdOf(context.HttpContext);
 
         if (problem.Extensions.ContainsKey(ProblemMapping.ErrorCodeKey)
             || !ErrorsByStatus.TryGetValue(problem.Status ?? context.HttpContext.Response.StatusCode, out var error))

@@ -78,6 +78,20 @@ public class LayerDependencyTests
         AssertSuccessful(result);
     }
 
+    [Theory]
+    [InlineData(Domain)]
+    [InlineData(Application)]
+    [InlineData(Infrastructure)]
+    public void InnerLayers_DoNotDependOnSerilogOrOpenTelemetry(string layer)
+    {
+        var result = Layer(layer)
+            .ShouldNot()
+            .HaveDependencyOnAny("Serilog", "OpenTelemetry")
+            .GetResult();
+
+        AssertSuccessful(result);
+    }
+
     [Fact]
     public void Api_DoesNotAccessTheDatabaseDirectly()
     {

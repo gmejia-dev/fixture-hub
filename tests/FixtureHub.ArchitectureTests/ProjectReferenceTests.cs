@@ -30,6 +30,24 @@ public class ProjectReferenceTests
         Assert.True(packages.Count == 0, "Domain no puede referenciar paquetes. Encontrados: " + string.Join(", ", packages));
     }
 
+    [Theory]
+    [InlineData("FixtureHub.Domain")]
+    [InlineData("FixtureHub.Application")]
+    [InlineData("FixtureHub.Infrastructure")]
+    public void InnerLayers_DoNotReferenceSerilogOrOpenTelemetryPackages(string project)
+    {
+        var packages = Csproj(project)
+            .Descendants("PackageReference")
+            .Select(package => package.Attribute("Include")?.Value ?? string.Empty)
+            .Where(package => package.StartsWith("Serilog", StringComparison.Ordinal)
+                || package.StartsWith("OpenTelemetry", StringComparison.Ordinal))
+            .ToList();
+
+        Assert.True(
+            packages.Count == 0,
+            $"{project} no puede referenciar paquetes de observabilidad. Encontrados: {string.Join(", ", packages)}");
+    }
+
     private static XDocument Csproj(string project) =>
         XDocument.Load(Repository.File($"src/{project}/{project}.csproj"));
 }

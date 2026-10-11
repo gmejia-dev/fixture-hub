@@ -1,3 +1,4 @@
+using System.Reflection;
 using FixtureHub.Application;
 using FixtureHub.Application.Abstractions.Authentication;
 using FixtureHub.Application.Abstractions.Events;
@@ -27,6 +28,8 @@ public sealed class DependencyInjectionTests : IDisposable
     private readonly FakeTeamStandingRepository _standings = new();
     private readonly FakeIdempotencyStore _idempotency = new();
     private readonly FakeTeamReader _teamReader = new();
+    private static readonly Type[] HandlerContracts = [typeof(ICommandHandler<>), typeof(ICommandHandler<,>), typeof(IQueryHandler<,>)];
+
     private readonly ServiceProvider _provider;
 
     public DependencyInjectionTests()
@@ -55,33 +58,53 @@ public sealed class DependencyInjectionTests : IDisposable
     }
 
     [Fact]
-    public void AddApplication_CommandWithResponse_IsResolvedWithLoggingAsTheOutermostDecorator()
+    public void AddApplication_CommandWithResponse_RunsTheWholePipelineInOrder()
     {
         using var scope = _provider.CreateScope();
 
         var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<CreateTeamCommand, Guid>>();
 
-        Assert.IsType<LoggingDecorator.CommandHandler<CreateTeamCommand, Guid>>(handler);
+        Assert.Equal(
+            [
+                typeof(TracingDecorator.CommandHandler<,>),
+                typeof(LoggingDecorator.CommandHandler<,>),
+                typeof(ValidationDecorator.CommandHandler<,>),
+                typeof(TransactionDecorator.CommandHandler<,>),
+                typeof(IdempotencyDecorator.CommandHandler<,>),
+                typeof(CreateTeamHandler)
+            ],
+            Pipeline(handler));
     }
 
     [Fact]
-    public void AddApplication_CommandWithoutResponse_IsResolvedWithLoggingAsTheOutermostDecorator()
+    public void AddApplication_CommandWithoutResponse_RunsTheWholePipelineInOrder()
     {
         using var scope = _provider.CreateScope();
 
         var handler = scope.ServiceProvider.GetRequiredService<ICommandHandler<DeleteTeamCommand>>();
 
-        Assert.IsType<LoggingDecorator.CommandHandler<DeleteTeamCommand>>(handler);
+        Assert.Equal(
+            [
+                typeof(TracingDecorator.CommandHandler<>),
+                typeof(LoggingDecorator.CommandHandler<>),
+                typeof(ValidationDecorator.CommandHandler<>),
+                typeof(TransactionDecorator.CommandHandler<>),
+                typeof(IdempotencyDecorator.CommandHandler<>),
+                typeof(DeleteTeamHandler)
+            ],
+            Pipeline(handler));
     }
 
     [Fact]
-    public void AddApplication_Login_IsAQueryWithValidationOnlyWithoutTransactionOrIdempotency()
+    public void AddApplication_Login_IsAQueryWithTracingAndValidationOnlyWithoutTransactionOrIdempotency()
     {
         using var scope = _provider.CreateScope();
 
         var handler = scope.ServiceProvider.GetRequiredService<IQueryHandler<LoginQuery, AuthToken>>();
 
-        Assert.IsType<ValidationDecorator.QueryHandler<LoginQuery, AuthToken>>(handler);
+        Assert.Equal(
+            [typeof(TracingDecorator.QueryHandler<,>), typeof(ValidationDecorator.QueryHandler<,>), typeof(LoginHandler)],
+            Pipeline(handler));
     }
 
     [Fact]
@@ -148,13 +171,15 @@ public sealed class DependencyInjectionTests : IDisposable
     }
 
     [Fact]
-    public void AddApplication_Query_IsResolvedWithValidationAsTheOutermostDecorator()
+    public void AddApplication_Query_RunsTracingAndValidationBeforeTheHandler()
     {
         using var scope = _provider.CreateScope();
 
         var handler = scope.ServiceProvider.GetRequiredService<IQueryHandler<GetTeamsQuery, PagedResult<TeamSummary>>>();
 
-        Assert.IsType<ValidationDecorator.QueryHandler<GetTeamsQuery, PagedResult<TeamSummary>>>(handler);
+        Assert.Equal(
+            [typeof(TracingDecorator.QueryHandler<,>), typeof(ValidationDecorator.QueryHandler<,>), typeof(GetTeamsHandler)],
+            Pipeline(handler));
     }
 
     [Fact]
@@ -184,6 +209,26 @@ public sealed class DependencyInjectionTests : IDisposable
     }
 
     public void Dispose() => _provider.Dispose();
+
+    private static List<Type> Pipeline(object handler)
+    {
+        var pipeline = new List<Type>();
+
+        for (var current = handler; current is not null; current = InnerHandlerOf(current))
+        {
+            var type = current.GetType();
+            pipeline.Add(type.IsGenericType ? type.GetGenericTypeDefinition() : type);
+        }
+
+        return pipeline;
+    }
+
+    private static object? InnerHandlerOf(object decorator) =>
+        decorator.GetType()
+            .GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+            .SingleOrDefault(field => field.FieldType.IsGenericType
+                && HandlerContracts.Contains(field.FieldType.GetGenericTypeDefinition()))
+            ?.GetValue(decorator);
 
     private async Task<Result<Guid>> HandleAsync(CreateTeamCommand command)
     {

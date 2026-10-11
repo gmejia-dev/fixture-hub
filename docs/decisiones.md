@@ -75,7 +75,7 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 | Repetición visible | Una respuesta repetida lleva el header `Idempotent-Replayed: true` (como Stripe). El cuerpo y el status son los de la primera vez. |
 | Códigos HTTP | `Validation` 400, `NotFound` 404, `Conflict` 409, `Failure` 500. Un body o parámetro mal formado es 400 `Request.Malformed`; un error inesperado, 500 `Server.Unexpected` sin el mensaje de la excepción. |
 | `Location` de jugadores y goles | Apunta al agregado (`/api/teams/{teamId}`, `/api/matches/{matchId}`): jugadores y goles no existen fuera de su equipo o partido, y el detalle del agregado los incluye. |
-| `traceId` | Los 32 caracteres del trace W3C, el mismo que guarda `DomainEvents`. Si el cliente manda `traceparent`, se respeta. |
+| `traceId` | Los 32 caracteres del trace W3C, el mismo que guarda `DomainEvents`. Si el cliente manda `traceparent`, se respeta. Toda respuesta, con error o sin él, lo trae también en el header `X-Trace-Id`. |
 | Paginación | Todos los listados aceptan `pageNumber` (desde 1), `pageSize` (de 1 a 100; 10 por defecto), `sortBy`, `sortDirection` (`asc` o `desc`, sin distinguir mayúsculas) y filtros por entidad. La respuesta trae `items`, `pageNumber`, `pageSize`, `totalRecords` y `totalPages`. |
 | Ordenamiento | `sortBy` se valida contra una lista blanca por recurso (400 `Query.InvalidSortBy`) y el lector lo traduce a una columna con su propio diccionario: el texto del usuario nunca llega al SQL. Siempre se agrega un desempate único para que las páginas no repitan ni salten filas. |
 | Filtros de texto | Contienen el texto, sin distinguir mayúsculas (intercalación de SQL Server). Los comodines de `LIKE` del usuario se buscan literalmente. |
@@ -110,7 +110,33 @@ Límites conocidos:
 
 `TeamCreated`, `MatchStarted`, `GoalScored`, `GoalAnnulled`, `MatchFinished`, `MatchCancelled` y `MatchResultCorrected`. Cada cambio de estado del partido genera su propio evento.
 
-Las entidades acumulan sus eventos y el Unit of Work los despacha **antes de guardar**, dentro de la misma transacción: la tabla de posiciones se actualiza junto con el partido, sin consistencia eventual. Cada evento se registra en la tabla `DomainEvents` y se loggea con el TraceId del request que lo originó.
+Las entidades acumulan sus eventos y el Unit of Work los despacha **antes de guardar**, dentro de la misma transacción: la tabla de posiciones se actualiza junto con el partido, sin consistencia eventual. Cada evento se registra en la tabla `DomainEvents`, se loggea con el TraceId del request que lo originó y aparece como evento en el span del command.
+
+## Observabilidad
+
+| Decisión | Motivo |
+|---|---|
+| **Serilog como proveedor de `ILogger`**, no como API | El código sigue escribiendo con `ILogger<T>` y `[LoggerMessage]` (el estándar de .NET, casi sin costo cuando el nivel está apagado). Cambiar de Serilog a otro proveedor toca solo la Api. Dos tests impiden que Domain, Application o Infrastructure lo referencien. |
+| **JSON compacto fuera de Development**, texto en Development | En un contenedor, los logs los recoge la plataforma (Docker, Loki, Elastic): JSON con propiedades se filtra sin parsear texto (`StatusCode >= 500`, `UserId = …`). En la terminal de desarrollo se lee mejor el texto. `Observability:JsonConsole` permite elegir. |
+| **Un log por request** (`UseSerilogRequestLogging`) en vez de los de ASP.NET Core | Un solo evento con método, ruta, status, duración, plantilla de la ruta y usuario, en lugar de dos o tres eventos sueltos por request. Va primero en el pipeline para medir todo, incluido el manejo de errores. |
+| **5xx como `Error`, 4xx como `Information`** | Un 404 o un 409 es un resultado esperado (el cliente pidió algo que no se puede); una alerta por nivel `Error` debe significar que el servidor falló. |
+| **El CorrelationId es el TraceId W3C** | Un solo identificador para todo: logs, ProblemDetails, `DomainEvents`, el header `X-Trace-Id` y la traza de Jaeger. `traceparent` es el estándar para propagarlo entre servicios; inventar otro header obligaría a mantener dos Ids sincronizados. |
+| **`X-Trace-Id` en toda respuesta**, escrito con `Response.OnStarting` | El cliente puede reportar el Id de cualquier request, no solo de los errores. `OnStarting` lo escribe justo antes de mandar los headers, así que sobrevive al manejador de excepciones, que borra los headers antes de escribir el 500 (un test lo verifica). |
+| **El Id del usuario en los logs**, nunca el nombre ni datos del request | Con el `sub` del token se sabe quién hizo cada escritura sin guardar datos personales en los logs. Nunca se loguean bodies, contraseñas, tokens ni la query string. |
+| **OpenTelemetry con exportación OTLP** | Es el estándar abierto: el código no sabe a qué backend van las trazas. Jaeger recibe OTLP de forma nativa (el exportador específico de Jaeger quedó obsoleto en OpenTelemetry .NET). Cambiar a Tempo, Zipkin o Azure Monitor es cambiar el endpoint. |
+| **Endpoint por la variable estándar `OTEL_EXPORTER_OTLP_ENDPOINT`**, y sin ella no se exporta | Es la variable que reconoce cualquier SDK de OpenTelemetry. Sin endpoint, los tests y una máquina sin Jaeger no intentan conectarse. |
+| **Un span propio por command y por query** | Las instrumentaciones de ASP.NET Core y SqlClient muestran el request y el SQL, pero no qué caso de uso corrió. El decorator agrega ese nivel y el resultado (`success` o `rejected` con el código). Usa `ActivitySource` de .NET, así que Application no depende de OpenTelemetry. |
+| **Un rechazo de negocio no es un error en la traza** | Un 409 marcado en rojo esconde los errores reales. Se marca como error solo una excepción, igual que la convención de OpenTelemetry para HTTP (un 4xx no es error del servidor). |
+| **SQL con la instrumentación de SqlClient** | EF Core y Dapper usan el mismo driver, así que una instrumentación cubre escrituras y lecturas. No registra los valores de los parámetros. |
+| **Los eventos de dominio como eventos del span** | Un evento de dominio es algo que pasó en un instante, no una operación con duración: encaja como evento del span del command, con su Id para cruzarlo con la tabla `DomainEvents`. |
+
+Límites conocidos:
+
+- **Se trazan todos los requests.** Con mucho tráfico convendría muestrear (por ejemplo, `ParentBasedSampler` con una proporción) o hacerlo en un OpenTelemetry Collector.
+- **Jaeger guarda las trazas en memoria:** se pierden al reiniciarlo. En producción usaría un almacenamiento persistente (Elasticsearch, Cassandra) o un servicio administrado.
+- **Los logs solo van a la consola.** En Docker los guarda el motor; para buscarlos entre varias instancias haría falta enviarlos a Seq, Elastic o Loki (o por OTLP a un Collector).
+- **No hay métricas.** El paso siguiente es `WithMetrics` con las métricas de ASP.NET Core y de SqlClient, exportadas a Prometheus.
+- **El arranque no deja trazas:** las migraciones, el administrador y el seed corren antes de que el host inicie OpenTelemetry. Sí dejan logs.
 
 ## Datos de arranque
 
@@ -129,3 +155,4 @@ Límite conocido: si dos instancias de la Api arrancan a la vez sobre una base v
 - **Varios torneos:** entidad `Tournament` con inscripción de equipos (un equipo una sola vez por torneo). La tabla y los goleadores pasarían a calcularse por torneo.
 - **Jugadores en varios equipos** (por ejemplo, selección y club): relación N:M mediante `TeamMembership`, con el dorsal por membresía.
 - **Usuarios y roles:** endpoints para administrar usuarios, más roles (por ejemplo, un árbitro que solo registra goles de su partido), refresh tokens y rate limiting en el login.
+- **Observabilidad completa:** métricas con Prometheus y Grafana, logs centralizados y un OpenTelemetry Collector que reciba logs, métricas y trazas y decida el muestreo.

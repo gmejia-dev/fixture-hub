@@ -24,13 +24,14 @@ FixtureHub sigue **Clean Architecture**: el código se organiza en capas concén
 | `FixtureHub.Domain` | Reglas del torneo: entidades (`Team`, `Player`, `Match`, `Goal`), estados del partido, la fila de la tabla de posiciones (`TeamStanding`), eventos de dominio, errores y `Result` | Nada |
 | `FixtureHub.Application` | Casos de uso: commands, queries, sus handlers y decorators. Define los **contratos** que necesita (`IUnitOfWork`, repositorios, lectores) sin implementarlos | Domain |
 | `FixtureHub.Infrastructure` | Implementa los contratos: EF Core (escritura), Dapper (lectura), Unit of Work, idempotencia, seed, usuarios y hash de contraseñas | Application |
-| `FixtureHub.Api` | Entrada HTTP con Minimal APIs, middlewares, filtros, JWT (emite y valida los tokens), mapeo de `Result` a HTTP y *composition root* | Application, Infrastructure |
+| `FixtureHub.Api` | Entrada HTTP con Minimal APIs, middlewares, filtros, JWT (emite y valida los tokens), mapeo de `Result` a HTTP, logs (Serilog) y trazas (OpenTelemetry) y *composition root* | Application, Infrastructure |
 
 ### Qué no puede aparecer en cada capa
 
 - **Domain:** EF Core (ni sus atributos), Dapper, ASP.NET Core, logging. El mapeo a tablas se hace con Fluent API en Infrastructure.
 - **Application:** EF Core, Dapper, SQL Server, `HttpContext`. Solo conoce interfaces.
 - **Api:** lógica de negocio. Recibe el request, lo despacha y traduce el resultado a HTTP.
+- **Domain, Application e Infrastructure:** Serilog y OpenTelemetry. Escriben logs con `ILogger<T>` y spans con `ActivitySource`, que son de .NET; la Api decide a dónde van.
 
 ## Inversión de dependencias
 
@@ -61,7 +62,7 @@ En tiempo de compilación, Infrastructure depende de Application. En tiempo de e
 builder.Services
     .AddApplication()
     .AddInfrastructure(connectionString)
-    .AddApi();
+    .AddApi(builder.Configuration);
 
 var app = builder.Build();
 
@@ -87,24 +88,26 @@ Los handlers implementan interfaces propias (`ICommandHandler<TCommand>` e `ICom
 
 ```
 endpoint → ICommandHandler<CreateTeamCommand, Guid>
-  LoggingDecorator          nombre del comando, duración y resultado (nunca su contenido)
-  └ ValidationDecorator     FluentValidation; si falla, 400 sin abrir la transacción
-     └ TransactionDecorator  BEGIN → … → COMMIT, o ROLLBACK si algo falla
-        └ IdempotencyDecorator  candado por clave, repite la respuesta guardada
-           └ CreateTeamHandler  dominio + repositorios; nunca hace commit
+  TracingDecorator          un span con el nombre del comando y su resultado
+  └ LoggingDecorator        nombre del comando, duración y resultado (nunca su contenido)
+     └ ValidationDecorator   FluentValidation; si falla, 400 sin abrir la transacción
+        └ TransactionDecorator  BEGIN → … → COMMIT, o ROLLBACK si algo falla
+           └ IdempotencyDecorator  candado por clave, repite la respuesta guardada
+              └ CreateTeamHandler  dominio + repositorios; nunca hace commit
 ```
 
 - **El commit lo hace `TransactionDecorator`, nunca el handler.** Así la idempotencia guarda la respuesta en la misma transacción que los cambios, y ningún handler puede olvidar cerrarla.
 - Los handlers y validadores son `internal`: nadie puede inyectarlos directo y saltarse el pipeline. Scrutor los registra como servicios con clave y solo expone la cadena decorada.
-- Un test de arquitectura exige que cada command y cada query tengan exactamente un handler.
+- Un test de arquitectura exige que cada command y cada query tengan exactamente un handler, y un test de inyección de dependencias fija el orden completo de la cadena.
 
-Las queries tienen su propio contrato (`IQueryHandler<TQuery, TResponse>`) y un pipeline más corto: solo validación. No abren transacción ni pasan por la idempotencia, porque no cambian nada.
+Las queries tienen su propio contrato (`IQueryHandler<TQuery, TResponse>`) y un pipeline más corto: traza y validación. No abren transacción ni pasan por la idempotencia, porque no cambian nada.
 
 ```
 endpoint → IQueryHandler<GetStandingsQuery, PagedResult<StandingItem>>
-  ValidationDecorator      página, tamaño (1–100), sortBy en lista blanca, dirección
-  └ GetStandingsHandler    delega en el lector; traduce "no existe" a un error del dominio
-     └ IStandingsReader     (Application) ← StandingsReader con Dapper (Infrastructure)
+  TracingDecorator         un span con el nombre de la query
+  └ ValidationDecorator    página, tamaño (1–100), sortBy en lista blanca, dirección
+     └ GetStandingsHandler  delega en el lector; traduce "no existe" a un error del dominio
+        └ IStandingsReader   (Application) ← StandingsReader con Dapper (Infrastructure)
 ```
 
 ### Lectura con Dapper
@@ -254,7 +257,7 @@ POST /api/teams  (Authorization: Bearer …)
 
 | Pieza | Capa | Qué hace |
 |---|---|---|
-| `LoginQuery`, `LoginHandler`, `LoginValidator`, `AuthToken` | Application | El caso de uso. Es una **query**: no cambia estado, así que no abre transacción ni usa idempotencia (pasa solo por el decorator de validación). |
+| `LoginQuery`, `LoginHandler`, `LoginValidator`, `AuthToken` | Application | El caso de uso. Es una **query**: no cambia estado, así que no abre transacción ni usa idempotencia (pasa solo por los decorators de traza y validación). |
 | `IUserReader`, `IPasswordHasher`, `ITokenIssuer` | Application | Contratos que necesita el login |
 | `UserReader` | Infrastructure | Lee el usuario con Dapper |
 | `Pbkdf2PasswordHasher` | Infrastructure | PBKDF2-HMAC-SHA256, 600.000 iteraciones, sal aleatoria de 16 bytes, comparación en tiempo constante. Guarda `PBKDF2-SHA256$iteraciones$sal$hash`, así que se pueden subir las iteraciones sin invalidar los hashes viejos. |
@@ -268,6 +271,65 @@ POST /api/teams  (Authorization: Bearer …)
 - **El login no revela qué usuarios existen:** usuario inexistente y contraseña incorrecta dan la misma respuesta, y en los dos casos se calcula un PBKDF2 para que el tiempo de respuesta tampoco los distinga.
 - **El login queda fuera del filtro de idempotencia:** está en su propio grupo, porque repetirlo no cambia nada.
 - **Secretos fuera del repositorio:** `Admin:Password` y `Jwt:SigningKey` vienen de user-secrets en desarrollo o de variables de entorno (`Admin__Password`, `Jwt__SigningKey`; Docker Compose las toma de un `.env`). Si faltan o son débiles (contraseña de menos de 12 caracteres, clave de menos de 32 bytes), la Api no arranca y el mensaje nombra el ajuste. Un test impide que aparezcan en los `appsettings*.json`.
+
+## Observabilidad
+
+Tres piezas, todas conectadas por el mismo identificador: el **TraceId W3C** del request (32 caracteres hexadecimales).
+
+```
+HTTP (traceparent opcional)
+ → UseSerilogRequestLogging   mide todo el request y al final escribe un log: método, ruta, status, duración, usuario
+ → UseExceptionHandler → UseStatusCodePages → UseAuthentication
+ → CorrelationMiddleware      header X-Trace-Id en la respuesta; el usuario (sub) en cada log del request
+ → UseAuthorization → endpoint
+ → [Application] TracingDecorator → LoggingDecorator → …   span y logs del command o la query
+ → [Infrastructure] Unit of Work: cada evento de dominio va al log, a la tabla DomainEvents y al span
+```
+
+### Logs: Serilog
+
+- El código escribe con `ILogger<T>` y mensajes generados con `[LoggerMessage]`; **Serilog es solo el proveedor**, configurado en la Api (`AddStructuredLogging`). Ninguna otra capa lo referencia (dos tests lo verifican: en el código compilado y en los `.csproj`).
+- **Salida:** consola. En Development, texto legible con el TraceId al final de cada línea; en cualquier otro entorno (`Observability:JsonConsole`), JSON compacto, un evento por línea, listo para que lo indexe Docker, Loki, Seq o Elastic.
+- **Un log por request** (`UseSerilogRequestLogging`), con `RequestMethod`, `RequestPath`, `StatusCode`, `Elapsed` (ms), `Route` (la plantilla, por ejemplo `/api/teams/{teamId:guid}`) y `UserId` si el request vino con token. Reemplaza a los logs de ASP.NET Core (nivel `Warning`). Un 5xx sale como `Error`; un 4xx, como `Information`: es un error del cliente, no del servidor.
+- **Niveles** en la sección `Serilog` de `appsettings.json` (se pueden cambiar con variables de entorno, por ejemplo `Serilog__MinimumLevel__Default=Debug`). Los comandos SQL de EF Core quedan en `Warning`: el SQL se ve en las trazas.
+- **Nunca se loguea** el contenido de un command, el body, la contraseña ni el token. `RequestPath` no incluye la query string.
+- Un test de arquitectura impide usar en las plantillas nombres que ya pone el pipeline (`EventId`, `SourceContext`, `Scope`, `UserId`, `Route`): con Serilog, un `{EventId}` en el mensaje queda pisado por el `EventId` de `[LoggerMessage]`.
+
+### Correlación: un solo identificador
+
+| Dónde | Cómo aparece |
+|---|---|
+| Request entrante | Header `traceparent` (W3C Trace Context). Si viene, ASP.NET Core continúa esa traza; si no, crea una. |
+| Respuesta | Header `X-Trace-Id`, en todas: 200, 401, 404 y también 500. Se escribe con `Response.OnStarting`, porque el manejador de excepciones borra los headers antes de escribir el error. |
+| Errores | `traceId` en el ProblemDetails |
+| Logs | `@tr` (y `@sp`, el span) en el JSON de cada evento: Serilog los toma de `Activity.Current` |
+| Base de datos | Columna `TraceId` de `DomainEvents` |
+| Trazas | Es el Id de la traza en Jaeger |
+
+El *CorrelationId* de FixtureHub **es** el TraceId: no hay un segundo identificador que mantener sincronizado. Con el valor de `X-Trace-Id` (o del `traceId` de un error) se encuentran la traza en Jaeger, todos los logs de ese request y los eventos de dominio que generó.
+
+### Trazas: OpenTelemetry + Jaeger
+
+```
+POST /api/teams/                      span del servidor (ASP.NET Core)
+└ CreateTeamCommand                   TracingDecorator (Application)   evento: TeamCreated
+  ├ EXEC sp_getapplock …              SqlClient (EF Core y Dapper usan el mismo driver)
+  ├ SELECT [IdempotencyRecords]
+  ├ SELECT [Teams]
+  └ INSERT …                          SaveChanges: equipo, fila de la tabla, evento, clave
+```
+
+| Fuente | Qué produce |
+|---|---|
+| `AddAspNetCoreInstrumentation` | Un span por request, con método, ruta, status y el `traceparent` entrante como padre |
+| `ApplicationTracing` (`ActivitySource` de Application) | Un span por command o query (`TracingDecorator`, el más externo del pipeline), con `fixturehub.operation` (`command`/`query`), `fixturehub.result` (`success`/`rejected`) y `fixturehub.error_code`. Los eventos de dominio se agregan como eventos del span (`fixturehub.event_id`). |
+| `AddSqlClientInstrumentation` | Un span por comando SQL, con el texto resumido y sin los valores de los parámetros |
+
+- Application usa `System.Diagnostics.ActivitySource`, que es parte de .NET: no depende de OpenTelemetry. La Api lo suscribe con `AddSource(ApplicationTracing.SourceName)`.
+- **Un comando rechazado (400, 404, 409) no marca el span como error:** queda con `fixturehub.result = rejected` y el código. Solo una excepción lo marca (`Error`, con el evento `exception`), igual que el span del servidor solo es error con un 5xx.
+- **Exportación por OTLP**, el protocolo estándar de OpenTelemetry, que Jaeger recibe de forma nativa (puerto 4317). El endpoint se configura con la variable estándar `OTEL_EXPORTER_OTLP_ENDPOINT`; si no está, no se exporta (los tests y una máquina sin Jaeger no intentan conectarse). El perfil `http` de `launchSettings.json` apunta a `http://localhost:4317`.
+- Si Jaeger no responde, el exportador descarta en segundo plano: la Api no se entera ni se frena.
+- El servicio se llama `fixturehub-api`. El arranque (migraciones, administrador y seed) no deja trazas: corre antes de `app.Run()`, y OpenTelemetry empieza a escuchar cuando arranca el host. Sí deja logs.
 
 ## Base de datos al iniciar
 
@@ -290,16 +352,17 @@ El seed (`DatabaseSeeder`) **no inserta filas a mano**: envía los mismos comman
 
 ```
 HTTP
- → [Api] manejador de excepciones → JWT (autenticación) → rol Admin (autorización)
+ → [Api] log del request (Serilog) → manejador de excepciones → JWT (autenticación)
+         → correlación (X-Trace-Id, usuario en los logs) → rol Admin (autorización)
          → binding del body → filtro Idempotency-Key (clave por usuario) → endpoint
  → [Application] ICommandHandler<RegisterGoalCommand, Guid> (ya decorado, por inyección)
-     Logging → Validation → Transaction (BEGIN) → Idempotency (candado + clave)
+     Tracing → Logging → Validation → Transaction (BEGIN) → Idempotency (candado + clave)
      → RegisterGoalHandler
          → IMatchRepository.GetByIdAsync, ITeamRepository (plantel de los dos equipos)
          → match.AddGoal(...)             [Domain] valida la regla y genera GoalScored
      ← Idempotency agrega la fila de la clave
      → Transaction: IUnitOfWork.CommitAsync
- → [Infrastructure] despacha los eventos (proyección + tabla DomainEvents), SaveChanges, COMMIT
+ → [Infrastructure] despacha los eventos (proyección + tabla DomainEvents + evento en el span), SaveChanges, COMMIT
  ← Result → [Api] 201 Created / 400 / 404 / 409 (+ Idempotent-Replayed si fue una repetición)
 ```
 
@@ -307,8 +370,8 @@ HTTP
 
 ```
 HTTP
- → [Api] manejador de excepciones → binding de la query string (PageParameters) → endpoint
- → [Application] IQueryHandler<GetStandingsQuery, …>: Validation → GetStandingsHandler → IStandingsReader
+ → [Api] log del request → manejador de excepciones → correlación → binding de la query string (PageParameters) → endpoint
+ → [Application] IQueryHandler<GetStandingsQuery, …>: Tracing → Validation → GetStandingsHandler → IStandingsReader
  → [Infrastructure] StandingsReader: Dapper lee la proyección TeamStandings con JOIN Teams,
                     calcula la posición con ROW_NUMBER, filtra, ordena y pagina en SQL
  ← PagedResult<StandingItem> → [Api] 200 OK
@@ -328,6 +391,8 @@ Las reglas de dependencia se verifican con tests de arquitectura (`tests/Fixture
 | `EachLayer_ReferencesExactlyTheProjectsItShould` | Cada `.csproj` referencia exactamente los proyectos que le corresponden |
 | `Domain_DoesNotReferenceAnyNuGetPackage` | El `.csproj` de Domain no tiene ningún paquete NuGet |
 | `Api_DoesNotAccessTheDatabaseDirectly` | La Api no usa EF Core, Dapper ni `SqlClient`: todo pasa por los handlers |
+| `InnerLayers_DoNotDependOnSerilogOrOpenTelemetry` y `InnerLayers_DoNotReferenceSerilogOrOpenTelemetryPackages` | Solo la Api conoce Serilog y OpenTelemetry, en el código compilado y en los `.csproj` |
+| `LogTemplates_DoNotUsePropertyNamesReservedByTheLoggingPipeline` | Ninguna plantilla de `[LoggerMessage]` usa `EventId`, `SourceContext`, `Scope`, `UserId` ni `Route` |
 | `Infrastructure_EveryTypeExceptItsEntryPointsAndTheMigrations_IsInternal` | Infrastructure solo expone `DependencyInjection`, `DatabaseInitializer` y las migraciones |
 | `Application_HandlersOfTheContract_AreInternal` y `Application_Validators_AreInternal` | Handlers de comandos, de queries, de eventos y validadores son `internal` |
 | `EveryCommand_HasExactlyOneHandler` y `EveryQuery_HasExactlyOneHandler` | Ningún command ni query queda sin handler (fallaría en tiempo de ejecución) ni con dos |

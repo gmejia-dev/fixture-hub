@@ -27,10 +27,10 @@ fixture-hub/
 │   ├── FixtureHub.Domain/          Reglas del torneo: entidades, estados, eventos, Result
 │   ├── FixtureHub.Application/     Casos de uso (commands/queries) y contratos
 │   ├── FixtureHub.Infrastructure/  EF Core, Dapper, SQL Server, seed, usuarios y hash de contraseñas
-│   └── FixtureHub.Api/             Endpoints HTTP, middlewares, JWT, composition root
+│   └── FixtureHub.Api/             Endpoints HTTP, middlewares, JWT, logs y trazas, composition root
 ├── tests/
 │   ├── FixtureHub.UnitTests/          Dominio, handlers y decorators, con fakes
-│   ├── FixtureHub.IntegrationTests/   Persistencia, lecturas e idempotencia contra SQL Server en Docker; la Api por HTTP
+│   ├── FixtureHub.IntegrationTests/   Persistencia, lecturas e idempotencia contra SQL Server en Docker; la Api por HTTP; logs y trazas
 │   └── FixtureHub.ArchitectureTests/  Reglas de dependencia, visibilidad y convenciones
 ├── docs/                           Arquitectura y decisiones de diseño
 ├── .env.example                    Variables de entorno con secretos (copiar como .env)
@@ -80,6 +80,18 @@ Para usar otro SQL Server, sobrescribe la cadena de conexión con una variable d
 ConnectionStrings__FixtureHub="Server=localhost,1433;Database=FixtureHub;User Id=sa;Password=<tu-clave>;TrustServerCertificate=True" dotnet run --project src/FixtureHub.Api --launch-profile http
 ```
 
+### Logs y trazas
+
+Los logs salen por consola con [Serilog](https://serilog.net/): en Development como texto, y en cualquier otro entorno como JSON, una línea por evento (`Observability__JsonConsole=true` lo activa también en desarrollo). Cada request deja un log con método, ruta, status y duración, y cada log lleva el TraceId del request.
+
+Para ver las trazas, levanta [Jaeger](https://www.jaegertracing.io/) en Docker:
+
+```bash
+docker run -d --name jaeger -p 16686:16686 -p 4317:4317 jaegertracing/jaeger:2.22.0
+```
+
+El perfil `http` ya apunta la Api a `http://localhost:4317` (`OTEL_EXPORTER_OTLP_ENDPOINT`). Las trazas aparecen en `http://localhost:16686` bajo el servicio `fixturehub-api`: el request HTTP, el command o la query y cada consulta SQL. Toda respuesta trae su TraceId en el header `X-Trace-Id`, para buscar la traza o los logs de ese request. Sin Jaeger, la Api funciona igual.
+
 ### La API en una mirada
 
 | | |
@@ -89,6 +101,7 @@ ConnectionStrings__FixtureHub="Server=localhost,1433;Database=FixtureHub;User Id
 | Autenticación | `POST /api/auth/login` devuelve un JWT (60 minutos). Las lecturas son públicas; las escrituras exigen `Authorization: Bearer <token>` con el rol Admin (401 sin token válido, 403 sin el rol) |
 | Idempotencia | Todo POST exige el header `Idempotency-Key`; repetir la misma petición devuelve la respuesta original con `Idempotent-Replayed: true` |
 | Errores | ProblemDetails (RFC 9457) con `errorCode`, `metadata` y `traceId` |
+| Observabilidad | Header `X-Trace-Id` en toda respuesta; `traceparent` (W3C) se respeta; trazas en Jaeger |
 
 El detalle está en [docs/arquitectura.md](docs/arquitectura.md#api-rest).
 
@@ -101,7 +114,7 @@ dotnet tool restore
 dotnet test
 ```
 
-La primera corrida descarga la imagen de SQL Server (unos 1,5 GB). Para correr solo los tests que no necesitan Docker:
+La primera corrida descarga las imágenes de SQL Server (unos 1,5 GB) y de Jaeger (unos 175 MB; un test exporta una traza a un Jaeger real). Para correr solo los tests que no necesitan Docker:
 
 ```bash
 dotnet test tests/FixtureHub.UnitTests
@@ -110,6 +123,6 @@ dotnet test tests/FixtureHub.ArchitectureTests
 
 ## Documentación
 
-- [Arquitectura](docs/arquitectura.md): capas, regla de dependencias y flujo de un request.
+- [Arquitectura](docs/arquitectura.md): capas, regla de dependencias, flujo de un request y observabilidad.
 - [Decisiones de diseño](docs/decisiones.md): qué se decidió y por qué.
 - [Guía de contribución](CONTRIBUTING.md): convención de commits, ramas y pull requests.
