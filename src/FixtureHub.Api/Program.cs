@@ -1,5 +1,6 @@
 using FixtureHub.Api;
 using FixtureHub.Api.Endpoints;
+using FixtureHub.Api.Endpoints.Health;
 using FixtureHub.Api.Observability;
 using FixtureHub.Application;
 using FixtureHub.Infrastructure;
@@ -32,5 +33,6 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 
 app.MapApiEndpoints();
+app.MapHealthEndpoints();
 
 app.Run();

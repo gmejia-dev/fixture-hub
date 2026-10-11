@@ -9,6 +9,7 @@ using FixtureHub.Infrastructure.Persistence.Repositories;
 using FixtureHub.Infrastructure.Reading;
 using FixtureHub.Infrastructure.Seeding;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -18,9 +19,11 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, string connectionString)
     {
-        services.AddDbContext<FixtureHubDbContext>(options => options.UseSqlServer(
-            connectionString,
-            sqlServer => sqlServer.UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery)));
+        services.AddDbContext<FixtureHubDbContext>(options => options
+            .UseSqlServer(
+                connectionString,
+                sqlServer => sqlServer.UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery))
+            .ConfigureWarnings(warnings => warnings.Throw(CoreEventId.RowLimitingOperationWithoutOrderByWarning)));
 
         services.TryAddSingleton(TimeProvider.System);
 
@@ -29,6 +32,7 @@ public static class DependencyInjection
         services.AddScoped<ITeamStandingRepository, TeamStandingRepository>();
 
         services.AddScoped<IIdempotencyStore, IdempotencyStore>();
+        services.AddHostedService<ExpiredIdempotencyRecordsCleanup>();
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
@@ -52,6 +56,8 @@ public static class DependencyInjection
         services.AddScoped<AdminAccountInitializer>();
 
         services.AddScoped<DatabaseSeeder>();
+
+        services.AddHealthChecks().AddDbContextCheck<FixtureHubDbContext>();
 
         return services;
     }

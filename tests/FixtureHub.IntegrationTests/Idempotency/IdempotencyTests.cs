@@ -69,6 +69,56 @@ public sealed class IdempotencyTests(SqlServerFixture database)
         Assert.True((await waiting).IsSuccess);
     }
 
+    [Fact]
+    public async Task CreateTeam_WithAnExpiredKey_RunsTheCommandAndReplacesTheRecord()
+    {
+        var key = Guid.NewGuid().ToString();
+        await AddExpiredRecordAsync(key);
+        var command = new CreateTeamCommand(TestData.UniqueName("Los Halcones"), "El Salvador");
+
+        var result = await database.SendAsync<CreateTeamCommand, Guid>(command, key);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, await CountTeamsAsync(command.Name));
+        var record = await database.QueryAsync(context => context.IdempotencyRecords.SingleAsync(record => record.Key == key));
+        Assert.False(record.IsExpired(DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public async Task ExpiredKey_DeletedByAnotherConnectionBeforeItIsReplaced_IsStillReplaced()
+    {
+        var key = Guid.NewGuid().ToString();
+        await AddExpiredRecordAsync(key);
+        await using var scope = database.CreateScope();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        var store = scope.ServiceProvider.GetRequiredService<IIdempotencyStore>();
+        await unitOfWork.BeginTransactionAsync(CancellationToken.None);
+        Assert.True(await store.TryLockAsync(key, CancellationToken.None));
+        Assert.NotNull(await store.FindAsync(key, CancellationToken.None));
+
+        await database.QueryAsync(context => context.IdempotencyRecords.Where(record => record.Key == key).ExecuteDeleteAsync());
+        await store.RemoveAsync(key, CancellationToken.None);
+        var now = DateTimeOffset.UtcNow;
+        store.Add(new IdempotencyRecord(key, new string('1', IdempotencyRecord.FingerprintLength), null, now, now.AddHours(24)));
+        var commit = await unitOfWork.CommitAsync(CancellationToken.None);
+
+        Assert.True(commit.IsSuccess);
+        var record = await database.QueryAsync(context => context.IdempotencyRecords.SingleAsync(record => record.Key == key));
+        Assert.False(record.IsExpired(DateTimeOffset.UtcNow));
+    }
+
+    private Task<int> AddExpiredRecordAsync(string key)
+    {
+        var expiresAt = DateTimeOffset.UtcNow.AddHours(-1);
+
+        return database.QueryAsync(context =>
+        {
+            context.IdempotencyRecords.Add(new IdempotencyRecord(
+                key, new string('0', IdempotencyRecord.FingerprintLength), null, expiresAt.AddHours(-24), expiresAt));
+            return context.SaveChangesAsync();
+        });
+    }
+
     private Task<int> CountTeamsAsync(string name) =>
         database.QueryAsync(context => context.Teams.CountAsync(team => team.Name == name));
 }

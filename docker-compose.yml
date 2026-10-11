@@ -1,0 +1,74 @@
+name: fixturehub
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD:?Configura SQLSERVER_SA_PASSWORD en el archivo .env (ver .env.example)}
+    ports:
+      - "127.0.0.1:1433:1433"
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q \"SELECT 1\" -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+      start_interval: 2s
+
+  api:
+    build:
+      context: .
+      dockerfile: src/FixtureHub.Api/Dockerfile
+    environment:
+      ConnectionStrings__FixtureHub: Server=sqlserver,1433;Database=FixtureHub;User Id=sa;Password=${SQLSERVER_SA_PASSWORD:?Configura SQLSERVER_SA_PASSWORD en el archivo .env (ver .env.example)};TrustServerCertificate=True
+      Database__ApplyMigrations: "true"
+      Database__Seed: "true"
+      Admin__Username: ${Admin__Username:?Configura Admin__Username en el archivo .env (ver .env.example)}
+      Admin__Password: ${Admin__Password:?Configura Admin__Password en el archivo .env (ver .env.example)}
+      Jwt__SigningKey: ${Jwt__SigningKey:?Configura Jwt__SigningKey en el archivo .env (ver .env.example)}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+    ports:
+      - "127.0.0.1:5065:8080"
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+
+  frontend:
+    build: ./frontend
+    environment:
+      API_BASE_URL: http://api:8080
+      TOURNAMENT_TIME_ZONE: ${TOURNAMENT_TIME_ZONE:-America/El_Salvador}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0
+    ports:
+      - "127.0.0.1:16686:16686"
+      - "127.0.0.1:4317:4317"
+
+volumes:
+  sqlserver-data:

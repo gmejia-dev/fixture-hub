@@ -88,6 +88,23 @@ public sealed class TracingTests(SqlServerFixture database) : IAsyncLifetime
         Assert.Contains(query.Events, activityEvent => activityEvent.Name == "exception");
     }
 
+    [Fact]
+    public async Task HealthCheckRequest_IsNotTraced()
+    {
+        var client = _api.CreateAnonymousClient();
+        var health = TraceParent.CreateRandom();
+        var standings = TraceParent.CreateRandom();
+        using var healthRequest = new HttpRequestMessage(HttpMethod.Get, "/health/ready");
+        healthRequest.Headers.Add(TraceParent.Header, health.Value);
+
+        var response = await client.SendAsync(healthRequest);
+        await client.SendAsync(StandingsRequest(standings));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await _api.Spans.WaitForAsync(standings.TraceId, span => span.Kind == ActivityKind.Server);
+        Assert.Empty(_api.Spans.Of(health.TraceId));
+    }
+
     private static HttpRequestMessage CreateTeamRequest(string name, TraceParent traceParent)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/teams")

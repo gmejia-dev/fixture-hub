@@ -1,0 +1,9 @@
+*
+!global.json
+!Directory.Build.props
+!.editorconfig
+!src/
+src/**/bin/
+src/**/obj/
+src/**/*.user
+src/FixtureHub.Api/appsettings.Development.json

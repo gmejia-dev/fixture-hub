@@ -10,7 +10,7 @@ Supuestos y decisiones tomadas donde el enunciado deja margen de interpretación
 | **SQL Server** | Afinidad con el ecosistema .NET y dominio del motor. El enunciado no exige uno en particular. |
 | **Minimal APIs** | Endpoints agrupados por recurso con *route groups*; la idempotencia se aplica como *endpoint filter*. |
 | **Handlers propios para CQRS** (sin MediatR) | Pocas necesidades: enviar un command o una query a su handler. MediatR requiere licencia desde la v13. Las interfaces son propias de Application, así que la decisión es reversible sin tocar los handlers. |
-| **Warnings como errores** | El código no compila con advertencias pendientes. |
+| **Warnings como errores** | El código no compila con advertencias pendientes. Lo mismo con EF Core: un `Take` sin `OrderBy` (resultados impredecibles) lanza una excepción en vez de solo advertir. |
 
 ## Convenciones de nombres
 
@@ -67,7 +67,7 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 | Tema | Decisión |
 |---|---|
 | Rutas | kebab-case y recursos en plural (`/api/teams`, `/api/top-scorers`). Ver [convenciones de nombres](#convenciones-de-nombres). |
-| Idempotencia | `Idempotency-Key` obligatorio en todo POST. Sin el header → 400. Misma clave con otro body → 409. Misma clave mientras la primera sigue en curso → la segunda **espera** (hasta 10 s) a que la primera termine y recibe su respuesta; si la espera vence, 409. Repetición idéntica → se devuelve la respuesta original. Las claves expiran a las 24 horas y se guardan en la misma transacción que los cambios del comando. |
+| Idempotencia | `Idempotency-Key` obligatorio en todo POST. Sin el header → 400. Misma clave con otro body → 409. Misma clave mientras la primera sigue en curso → la segunda **espera** (hasta 10 s) a que la primera termine y recibe su respuesta; si la espera vence, 409. Repetición idéntica → se devuelve la respuesta original. Las claves expiran a las 24 horas y se guardan en la misma transacción que los cambios del comando. Un servicio en segundo plano borra las vencidas cada hora, en lotes de 1000. |
 | DELETE | Idempotente: 204 aunque el recurso ya estuviera eliminado; 404 si nunca existió. |
 | Errores | ProblemDetails (RFC 9457) con `errorCode`, `traceId` y `metadata` (diccionario de datos adicionales para el frontend). Nunca incluye datos sensibles. |
 | Idiomas | La API devuelve códigos, nunca texto traducido: `errorCode` y `metadata` en cada error, y un código por campo en los errores de validación (`"errors": { "name": ["Team.NameRequired"] }`). Todo valor que cambia dentro de un mensaje viaja en `metadata`, para que el frontend pueda armar la frase en cualquier idioma. El frontend traduce con sus catálogos en español e inglés, y un test verifica que cada código tenga su traducción. `detail` queda en español como descripción para quien consume la API directo (Swagger, Postman). |
@@ -144,9 +144,9 @@ Límites conocidos:
 |---|---|
 | **El seed usa los commands de la API**, no `INSERT` | Respeta todas las reglas (validación, dominio, choques de horario) y arma la tabla de posiciones con los mismos eventos que en producción. Si una regla cambia, el seed no puede saltársela. |
 | **Solo con la base vacía** | Si ya hay equipos, no hace nada. Volver a iniciar la Api no duplica datos. |
-| **Migraciones y seed por configuración** (`Database:ApplyMigrations`, `Database:Seed`) | Apagados por defecto y encendidos en Development. En Docker (#6) se encienden por variables de entorno. |
+| **Migraciones y seed por configuración** (`Database:ApplyMigrations`, `Database:Seed`) | Apagados por defecto y encendidos en Development. En docker-compose se encienden con las variables `Database__ApplyMigrations` y `Database__Seed`. |
 | **Fechas relativas al día de arranque** | La fecha 4 es "hoy" (un partido en curso), las fechas 1 a 3 ya se jugaron y la 5 es la próxima semana. La demo siempre muestra un torneo a mitad de camino. |
-| **LocalDB en desarrollo** | `appsettings.Development.json` usa `(localdb)\MSSQLLocalDB` con autenticación de Windows: no hay contraseña en el repositorio. Docker (#6) usará variables de entorno. |
+| **LocalDB en desarrollo** | `appsettings.Development.json` usa `(localdb)\MSSQLLocalDB` con autenticación de Windows: no hay contraseña en el repositorio. En Docker, la cadena de conexión llega por variable de entorno con la contraseña del `.env`. |
 
 Límite conocido: si dos instancias de la Api arrancan a la vez sobre una base vacía, las dos intentan el seed y la segunda falla por el nombre único de los equipos. Con una sola instancia (el caso de la demo y de docker-compose) no ocurre; en producción el seed sería un paso de despliegue aparte.
 
@@ -170,7 +170,7 @@ Límite conocido: si dos instancias de la Api arrancan a la vez sobre una base v
 | **La Api es la que valida**; el formulario solo pide los campos obligatorios y el tipo numérico | Las reglas viven en un solo lugar. Los mensajes de la Api se muestran traducidos junto a cada campo. |
 | **Sin `loading.tsx`** | Con una página de carga, Next.js empieza a enviar la respuesta antes de saber si el equipo existe, y un equipo inexistente responde 200 en vez de 404. La Api responde en milisegundos, así que el indicador de carga no aporta y se prefiere el 404 real. |
 | **Tailwind CSS sin librería de componentes** | La interfaz no se evalúa: clases utilitarias y unos pocos componentes propios bastan. |
-| **Sin fuentes de Google, salida `standalone`, sin `X-Powered-By`** | El build no descarga nada de internet (importa en Docker), `standalone` produce un servidor de Node.js mínimo (unos 22 MB) para la imagen de #6, y no se anuncia la tecnología del servidor. |
+| **Sin fuentes de Google, salida `standalone`, sin `X-Powered-By`** | El build no descarga nada de internet (importa en Docker), `standalone` produce un servidor de Node.js mínimo (unos 41 MB con los archivos estáticos) para la imagen de Docker, y no se anuncia la tecnología del servidor. |
 | **Prettier, ESLint y saltos de línea LF** en el frontend | Formato y reglas de React verificables con un comando, como `dotnet format`. `frontend/.gitattributes` fija LF para que Git en Windows no convierta los archivos a CRLF y Prettier no los marque como mal formateados. |
 
 Límites conocidos:
@@ -182,6 +182,33 @@ Límites conocidos:
 - **Un jugador dado de baja que marcó goles** no aparece en el selector del formulario de corrección de resultado.
 - **Las trazas empiezan en la Api:** el servidor de Next.js no propaga `traceparent`, así que la traza no incluye el tramo del frontend. Ver extensiones futuras.
 
+## Docker
+
+| Decisión | Motivo |
+|---|---|
+| **Un `docker-compose.yml` con SQL Server, Api, frontend y Jaeger** | `docker compose up -d --build --wait` deja el sistema completo funcionando con un comando, sin instalar .NET, Node.js ni SQL Server. |
+| **Imágenes multi-etapa** | El SDK de .NET y las dependencias de desarrollo de Node.js solo están en la etapa de compilación. La imagen final lleva el runtime y lo publicado: menos tamaño y menos superficie de ataque. |
+| **Versiones fijas en todas las imágenes** (`sdk:10.0.401`, `aspnet:10.0.12`, `node:24.21.0-alpine`, `mssql/server:2022-CU27-ubuntu-22.04`, `jaeger:2.22.0`) | Un build de hoy y uno de dentro de un mes producen lo mismo. Con `latest`, una versión nueva puede romper el build o cambiar el comportamiento sin ningún cambio en el repositorio. Tests verifican que el SDK de la imagen sea el de `global.json` y que SQL Server y Jaeger sean los mismos que usan los tests de integración: se prueba con lo que se despliega. |
+| **Sin root dentro de los contenedores** | Las imágenes corren con el usuario `app` (Api) y `node` (frontend). Si alguien explotara una vulnerabilidad, no tendría permisos de administrador en el contenedor. Un test lo verifica. |
+| **Healthchecks en cadena** con `depends_on: condition: service_healthy` | Sin ellos, la Api arrancaría antes de que SQL Server acepte conexiones (tarda de 15 a 30 s) y fallaría al migrar. Cada servicio espera a que el anterior esté sano, y `--wait` sabe cuándo está todo listo. |
+| **Dos health checks en la Api: `live` y `ready`** | Responden preguntas distintas: "¿hay que reiniciar el proceso?" y "¿le mando tráfico?". Si `live` consultara la base, una caída de SQL Server haría reiniciar la Api en bucle sin arreglar nada. Son los mismos conceptos que las sondas de Kubernetes (*liveness* y *readiness*). |
+| **Los health checks no dejan logs ni trazas** | Docker los consulta cada 10 segundos: llenarían los logs y Jaeger de ruido. Un check que falla sí se registra como `Error`. |
+| **`curl` en la imagen de la Api** | El healthcheck de Docker corre dentro del contenedor, y la imagen `aspnet` no trae `curl` ni `wget`. Agrega unos 6,5 MB. Alternativas descartadas: la imagen Alpine (trae `wget`, pero `SqlClient` necesita además las librerías ICU) o un programa propio de healthcheck. En Kubernetes no haría falta: la sonda la hace el kubelet desde afuera. |
+| **Migraciones con `MigrateAsync` al arrancar** | Lo más simple para una sola instancia. EF Core toma un candado en la base antes de migrar (`Acquiring an exclusive lock for migration application`), así que dos instancias no aplican la misma migración dos veces. En producción las aplicaría un paso del pipeline (un *migration bundle* o un script SQL revisado). |
+| **Secretos desde `.env` con `${VARIABLE:?mensaje}`** | Si falta un secreto, `docker compose` se detiene antes de crear contenedores y dice cuál falta. Cada contenedor recibe solo las variables que usa: el frontend no recibe ningún secreto. Un test impide escribir un secreto en el compose y otro exige que `.env.example` documente todas las variables. |
+| **Puertos publicados solo en `127.0.0.1`** | Los servicios se usan desde la máquina; nadie de la red local llega a SQL Server ni a la Api. La Api se publica en el 5065, el mismo de `dotnet run`, para que el `.http` y Postman sirvan en los dos modos. |
+| **Volumen con nombre para SQL Server** | Los datos sobreviven a `docker compose down`. El seed solo corre con la base vacía, así que reiniciar no duplica datos. |
+| **`TrustServerCertificate=True` en la cadena de conexión** | SQL Server en el contenedor usa un certificado autofirmado, y `SqlClient` cifra la conexión por defecto y lo rechazaría. La conexión sigue cifrada; lo que no se valida es quién firmó el certificado. Es aceptable dentro de la red interna de Docker; en producción, un certificado de una autoridad de confianza. |
+
+Límites conocidos:
+
+- **La Api se conecta con `sa`.** En producción tendría un usuario con permisos mínimos (leer y escribir sus tablas) y las migraciones correrían con otro usuario.
+- **Dos advertencias de Data Protection al arrancar** (claves guardadas dentro del contenedor y sin cifrar). ASP.NET Core inicializa Data Protection aunque la Api no lo use: el JWT viaja en un header y no hay cookies ni antiforgery. Si se usara, las claves irían a un volumen o a un almacén compartido y se cifrarían con un certificado.
+- **Sin HTTPS.** Los navegadores tratan `http://localhost` como seguro, así que la cookie `Secure` funciona en la demo. En producción, un proxy (o Kestrel con certificado) terminaría TLS delante del frontend.
+- **La contraseña de `sa` se fija la primera vez que se crea el volumen.** Cambiarla después en el `.env` no la cambia en SQL Server: hay que borrar el volumen (`docker compose down -v`) o cambiarla con `ALTER LOGIN`.
+- **SQL Server no tiene imagen nativa para ARM** (Mac con chip M): corre con emulación, más lento.
+- **Las imágenes se construyen en la máquina.** El paso siguiente es construirlas en CI y publicarlas en un registro con su versión.
+
 ## Extensiones futuras
 
 - **Varios torneos:** entidad `Tournament` con inscripción de equipos (un equipo una sola vez por torneo). La tabla y los goleadores pasarían a calcularse por torneo.
@@ -191,3 +218,4 @@ Límites conocidos:
 - **Frontend en tiempo real:** SignalR o Server-Sent Events desde la Api para empujar los goles en lugar de consultar cada 10 segundos.
 - **Trazas desde el frontend:** OpenTelemetry en Next.js (`instrumentation.ts`) para que la traza empiece en el servidor de Next.js y continúe en la Api con `traceparent`.
 - **Pruebas de punta a punta:** Playwright contra la Api y el frontend levantados con docker-compose.
+- **Integración y entrega continuas:** GitHub Actions que corra los tests, construya las imágenes, las publique en un registro con la versión y despliegue detrás de HTTPS.

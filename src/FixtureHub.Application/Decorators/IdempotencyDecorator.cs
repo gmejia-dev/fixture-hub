@@ -77,7 +77,7 @@ internal static class IdempotencyDecorator
         }
 
         if (record is not null)
-            request.Store.Remove(record);
+            await request.Store.RemoveAsync(storageKey, cancellationToken);
 
         var result = await handle();
 

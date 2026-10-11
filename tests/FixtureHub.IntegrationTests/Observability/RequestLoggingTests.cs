@@ -5,6 +5,7 @@ using FixtureHub.Application.Teams.CreateTeam;
 using FixtureHub.IntegrationTests.Api;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Serilog.Events;
 
 namespace FixtureHub.IntegrationTests.Observability;
@@ -62,6 +63,34 @@ public sealed class RequestLoggingTests(SqlServerFixture database) : IAsyncLifet
         var exceptionLog = Assert.Single(api.Logs.Events, logEvent => logEvent.Exception is not null);
         Assert.Equal(ThrowingStandingsReader.Message, exceptionLog.Exception!.Message);
         Assert.True(exceptionLog.BelongsTo(traceId));
+    }
+
+    [Fact]
+    public async Task HealthCheckRequest_IsNotLogged()
+    {
+        var client = _api.CreateAnonymousClient();
+
+        var health = await client.GetAsync("/health/ready");
+        await client.GetAsync("/api/standings");
+
+        Assert.Equal(HttpStatusCode.OK, health.StatusCode);
+        await _api.Logs.WaitForAsync(logEvent => logEvent.IsRequestLog("/api/standings"));
+        Assert.DoesNotContain(_api.Logs.Events, logEvent => logEvent.IsRequestLog("/health/ready"));
+    }
+
+    [Fact]
+    public async Task FailingHealthCheck_IsLoggedAsErrorWithTheNameOfTheCheck()
+    {
+        await using var api = new ObservedApi(
+            database,
+            services => services.AddHealthChecks().AddCheck("falla", () => HealthCheckResult.Unhealthy("SQL Server no responde")));
+
+        var response = await api.CreateAnonymousClient().GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var log = await api.Logs.WaitForAsync(logEvent => Equals(logEvent.Scalar("HealthCheckName"), "falla"));
+        Assert.Equal(LogEventLevel.Error, log.Level);
+        Assert.DoesNotContain(api.Logs.Events, logEvent => logEvent.IsRequestLog("/health/ready"));
     }
 
     [Fact]

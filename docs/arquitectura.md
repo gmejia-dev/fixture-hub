@@ -195,7 +195,9 @@ COMMIT  (la clave y los cambios del comando se confirman juntos; el candado se l
 - **Huella:** SHA-256 del nombre completo del comando y su JSON. Distingue "el mismo pedido repetido" de "la clave reusada con otro contenido".
 - **Se guarda el valor del `Result`** (por ejemplo, el Id creado), no la respuesta HTTP, y solo de los éxitos. Un fallo hizo rollback, así que repetirlo es seguro.
 - **Mismo pedido en paralelo:** el segundo espera en el candado a que el primero termine y recibe su respuesta. Si la espera supera 10 s, 409 `Idempotency.RequestInProgress`.
-- Las claves expiran a las 24 horas; una clave vencida se reemplaza. La tabla tiene un índice por `ExpiresAt` para una limpieza periódica.
+- Las claves expiran a las 24 horas; una clave vencida se reemplaza: la fila vieja se borra con un `DELETE` inmediato dentro de la transacción y la nueva se inserta al confirmar.
+- **Limpieza periódica:** `ExpiredIdempotencyRecordsCleanup`, un `BackgroundService` de Infrastructure, borra las claves vencidas al arrancar la Api y después cada hora, en lotes de 1000 empezando por las más viejas (con el índice por `ExpiresAt`), para no bloquear la tabla entera con un solo `DELETE` grande. Si la base falla, registra el error y lo intenta en el ciclo siguiente: una excepción sin atrapar en un `BackgroundService` detiene la Api.
+- **La limpieza y el reemplazo pueden coincidir:** un request encuentra su clave vencida y, antes de reemplazarla, la limpieza la borra. Por eso el reemplazo borra con `ExecuteDelete`, que acepta borrar 0 filas, en lugar de marcar la entidad como borrada (EF Core esperaría 1 fila y lanzaría `DbUpdateConcurrencyException`). La lectura de la clave es `AsNoTracking` para que la fila nueva no choque con la vieja en el seguimiento de EF Core. Un test reproduce esa carrera paso a paso.
 - **Claves por usuario:** el filtro copia el usuario del token (`sub`) a `IdempotencyContext.Scope` y la clave se guarda como `{usuario}:{clave}`. Dos usuarios pueden usar la misma clave sin chocar, y ninguno recibe la respuesta guardada del otro. Los errores (`metadata.key`) muestran la clave que mandó el cliente, sin el prefijo.
 
 ## API REST
@@ -210,6 +212,8 @@ Minimal APIs agrupadas por recurso (`MapGroup`), todas bajo `/api`:
 | Partidos | `GET /matches`, `GET /matches/{matchId}`, `POST /matches`, `PATCH /matches/{matchId}`, `DELETE /matches/{matchId}`, `POST /matches/{matchId}/start`, `/finish`, `/cancel` |
 | Goles y resultado | `POST /matches/{matchId}/goals`, `POST /matches/{matchId}/goals/{goalId}/annul`, `PUT /matches/{matchId}/result` |
 | Reportes | `GET /standings`, `GET /top-scorers` |
+
+Fuera de `/api` están los health checks, `GET /health/live` y `GET /health/ready` (ver [Docker](#docker)).
 
 Cada endpoint hace tres cosas y nada más: arma el command o la query con lo que llega por la ruta, el body y la query string; pide el handler por inyección, y traduce el `Result`:
 
@@ -290,7 +294,7 @@ HTTP (traceparent opcional)
 
 - El código escribe con `ILogger<T>` y mensajes generados con `[LoggerMessage]`; **Serilog es solo el proveedor**, configurado en la Api (`AddStructuredLogging`). Ninguna otra capa lo referencia (dos tests lo verifican: en el código compilado y en los `.csproj`).
 - **Salida:** consola. En Development, texto legible con el TraceId al final de cada línea; en cualquier otro entorno (`Observability:JsonConsole`), JSON compacto, un evento por línea, listo para que lo indexe Docker, Loki, Seq o Elastic.
-- **Un log por request** (`UseSerilogRequestLogging`), con `RequestMethod`, `RequestPath`, `StatusCode`, `Elapsed` (ms), `Route` (la plantilla, por ejemplo `/api/teams/{teamId:guid}`) y `UserId` si el request vino con token. Reemplaza a los logs de ASP.NET Core (nivel `Warning`). Un 5xx sale como `Error`; un 4xx, como `Information`: es un error del cliente, no del servidor.
+- **Un log por request** (`UseSerilogRequestLogging`), con `RequestMethod`, `RequestPath`, `StatusCode`, `Elapsed` (ms), `Route` (la plantilla, por ejemplo `/api/teams/{teamId:guid}`) y `UserId` si el request vino con token. Reemplaza a los logs de ASP.NET Core (nivel `Warning`). Un 5xx sale como `Error`; un 4xx, como `Information`: es un error del cliente, no del servidor. Los health checks salen como `Verbose`, es decir, no salen: Docker los consulta cada 10 segundos.
 - **Niveles** en la sección `Serilog` de `appsettings.json` (se pueden cambiar con variables de entorno, por ejemplo `Serilog__MinimumLevel__Default=Debug`). Los comandos SQL de EF Core quedan en `Warning`: el SQL se ve en las trazas.
 - **Nunca se loguea** el contenido de un command, el body, la contraseña ni el token. `RequestPath` no incluye la query string.
 - Un test de arquitectura impide usar en las plantillas nombres que ya pone el pipeline (`EventId`, `SourceContext`, `Scope`, `UserId`, `Route`): con Serilog, un `{EventId}` en el mensaje queda pisado por el `EventId` de `[LoggerMessage]`.
@@ -321,7 +325,7 @@ POST /api/teams/                      span del servidor (ASP.NET Core)
 
 | Fuente | Qué produce |
 |---|---|
-| `AddAspNetCoreInstrumentation` | Un span por request, con método, ruta, status y el `traceparent` entrante como padre |
+| `AddAspNetCoreInstrumentation` | Un span por request, con método, ruta, status y el `traceparent` entrante como padre. Los health checks se filtran: ni su span ni sus hijos se registran |
 | `ApplicationTracing` (`ActivitySource` de Application) | Un span por command o query (`TracingDecorator`, el más externo del pipeline), con `fixturehub.operation` (`command`/`query`), `fixturehub.result` (`success`/`rejected`) y `fixturehub.error_code`. Los eventos de dominio se agregan como eventos del span (`fixturehub.event_id`). |
 | `AddSqlClientInstrumentation` | Un span por comando SQL, con el texto resumido y sin los valores de los parámetros |
 
@@ -400,7 +404,7 @@ Navegador: RegisterGoalForm (Client Component, useActionState)
 
 ## Base de datos al iniciar
 
-`InitializeDatabaseAsync` aplica las migraciones (`Database:ApplyMigrations`), asegura el usuario administrador (siempre) y carga el seed (`Database:Seed`). Las dos opciones están apagadas en `appsettings.json` y encendidas en Development.
+`InitializeDatabaseAsync` aplica las migraciones (`Database:ApplyMigrations`), asegura el usuario administrador (siempre) y carga el seed (`Database:Seed`). Las dos opciones están apagadas en `appsettings.json` y encendidas en Development y en docker-compose.
 
 El seed (`DatabaseSeeder`) **no inserta filas a mano**: envía los mismos commands que la API (crear equipos y jugadores, programar, iniciar, registrar goles, anular, finalizar, cancelar), cada uno en su propio scope, como si fueran requests. Pasan por validación, transacción y eventos, así que la tabla de posiciones se arma sola y ninguna regla del dominio se salta. Solo corre si la base no tiene equipos.
 
@@ -412,6 +416,61 @@ El seed (`DatabaseSeeder`) **no inserta filas a mano**: envía los mismos comman
 - **Índices únicos filtrados** (`WHERE [IsDeleted] = 0`): nombre de equipo y dorsal por equipo. Un nombre o dorsal liberado por un borrado se puede reutilizar.
 - **Choques con índices únicos** (errores 2601/2627 de SQL Server): `UniqueIndexViolation` los traduce a `Team.NameTaken` o `Player.ShirtNumberTaken`. Son la red de seguridad para dos requests simultáneos que pasan juntos la verificación del handler.
 - **Migraciones** con `dotnet-ef` como herramienta local (`dotnet tool restore`). Se aplican al iniciar la Api en Development y al iniciar la base de los tests de integración, así que un modelo sin migración rompe los tests.
+- **Una advertencia de EF Core que indica un bug falla:** un `Take` o `Skip` sin `OrderBy` lanza una excepción en lugar de solo advertir (`ConfigureWarnings`), igual que los warnings del compilador son errores.
+
+## Docker
+
+`docker compose up -d --build --wait` levanta cuatro servicios en una red interna:
+
+```
+               127.0.0.1:3000               127.0.0.1:5065                  127.0.0.1:1433
+Navegador ──▶ frontend (Next.js) ──HTTP──▶ api (ASP.NET Core) ──TDS──▶ sqlserver (SQL Server 2022)
+                         API_BASE_URL=http://api:8080   │    Server=sqlserver,1433
+                                                        │
+                                                        └──OTLP──▶ jaeger (UI en 127.0.0.1:16686)
+                                     OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+```
+
+Dentro de la red, cada servicio encuentra a los demás por su nombre (`api`, `sqlserver`, `jaeger`): Docker tiene un DNS interno. Los puertos publicados solo sirven para entrar desde la máquina, y están atados a `127.0.0.1` para que nadie de la red local llegue a ellos. La Api se publica en el 5065, el mismo de `dotnet run`, así que `FixtureHub.Api.http` y Postman funcionan igual con los dos.
+
+### Arranque en cadena
+
+| Servicio | Espera a | Está sano cuando |
+|---|---|---|
+| `sqlserver` | — | `sqlcmd` ejecuta `SELECT 1` |
+| `api` | `sqlserver` sano | `GET /health/ready` responde 200 |
+| `frontend` | `api` sana | `GET /health` responde 200 |
+| `jaeger` | — | Sin healthcheck: la Api funciona aunque Jaeger no esté |
+
+`depends_on` con `condition: service_healthy` ordena el arranque, y `--wait` devuelve el control cuando todo está sano (o falla si algo no lo logra). La Api aplica las migraciones, asegura el administrador y carga el seed **antes** de que Kestrel empiece a escuchar, así que cuando `/health/ready` responde, la base ya está lista. Los healthchecks usan `start_interval` (cada 2 s durante el arranque y cada 10 s después) para no esperar de más.
+
+### Health checks de la Api
+
+| Endpoint | Qué verifica | Para qué |
+|---|---|---|
+| `GET /health/live` | Nada: si el proceso responde, está vivo | Reiniciar un proceso colgado. No consulta la base: si SQL Server cae, reiniciar la Api no lo arregla |
+| `GET /health/ready` | Todos los checks registrados; hoy, que el `DbContext` se conecte a SQL Server (`AddDbContextCheck`) | Decidir si se le manda tráfico. Es el que usa Docker |
+
+- Responden `Healthy` (200) o `Unhealthy` (503) en texto plano, sin token y con `Cache-Control: no-store`. Están fuera de `/api`, así que no pasan por la autorización ni por la idempotencia.
+- **No generan log de request ni traza:** `GetLevel` los baja a `Verbose` y el filtro de la instrumentación de ASP.NET Core los descarta. Si un check falla, el servicio de health checks escribe un `Error` con el nombre del check y la excepción.
+- El check se registra en Infrastructure (`AddInfrastructure`), la capa que conoce la base; la Api solo publica los endpoints.
+- El frontend tiene su propio `GET /health`: responde sin llamar a la Api, porque el estado de la Api ya lo dice su healthcheck.
+
+### Imágenes
+
+| Imagen | Compilación | Imagen final |
+|---|---|---|
+| Api (`src/FixtureHub.Api/Dockerfile`, contexto: la raíz) | `dotnet/sdk:10.0.401`, el de `global.json`. Restaura copiando primero solo los `.csproj` y después publica en Release | `dotnet/aspnet:10.0.12` (Ubuntu 24.04) más `curl` para el healthcheck. Usuario `app` (UID 1654), puerto 8080 |
+| Frontend (`frontend/Dockerfile`, contexto: `frontend/`) | `node:24.21.0-alpine`: `npm ci` en una etapa y `next build` en otra | La salida `standalone` (un servidor de Node.js con el `node_modules` mínimo) y `.next/static`. Usuario `node`, `HOSTNAME=0.0.0.0` y puerto 3000 |
+
+- **Multi-etapa:** el SDK y las dependencias de desarrollo solo existen en la etapa de compilación; la imagen final lleva el runtime y lo publicado.
+- **Caché de capas:** copiar los `.csproj` (o `package.json` y `package-lock.json`) antes que el código hace que, si solo cambia el código, Docker no vuelva a descargar paquetes.
+- **`.dockerignore`:** el de la raíz es una lista blanca (solo entran `global.json`, `Directory.Build.props`, `.editorconfig` y `src/`, sin `bin/`, `obj/` ni `appsettings.Development.json`); el del frontend deja fuera `node_modules`, `.next` y los `.env`.
+- **Configuración por variables de entorno:** cadena de conexión, administrador, clave de firma, migraciones y seed, endpoint de Jaeger y dirección de la Api. La misma imagen sirve para cualquier entorno. El entorno de ASP.NET Core es `Production` (el valor por defecto), así que los logs salen en JSON.
+
+### Datos
+
+SQL Server guarda la base en el volumen `sqlserver-data`. `docker compose down` borra los contenedores pero no el volumen: al volver a levantar, las migraciones ya están aplicadas y el seed no corre porque la base tiene equipos. `docker compose down -v` borra también el volumen, y la próxima vez todo se crea de nuevo. La contraseña de `sa` se fija la primera vez que se crea el volumen.
 
 ## Flujo de un request
 
@@ -467,6 +526,10 @@ Las reglas de dependencia se verifican con tests de arquitectura (`tests/Fixture
 | `AppSettingsFile_DoesNotContainSecrets` | Ni `Admin:Password` ni `Jwt:SigningKey` aparecen en los `appsettings*.json` |
 | `HttpFile_DoesNotContainTheAdminPassword` | `FixtureHub.Api.http` no se sube con la contraseña escrita |
 | `FrontendCatalogTests` | Cada código de error y cada estado del partido tiene traducción en `es.json` y `en.json`; los marcadores de cada mensaje existen en la `metadata` de su error; los errores constantes escriben sus límites |
+| `ApiDockerfile_BuildsWithTheSdkPinnedInGlobalJson` | La imagen de la Api compila con el mismo SDK que fija `global.json` |
+| `Dockerfile_FinalStage_RunsAsANonRootUser` y `FrontendDockerfile_UsesTheSameNodeImageInEveryStage` | Las dos imágenes corren sin root; el frontend usa una sola versión fija de Node.js |
+| `Compose_TakesEverySecretFromARequiredVariable` y `EnvExample_DocumentsEveryVariableTheComposeFileReads` | Ningún secreto está escrito en `docker-compose.yml` (todos son `${VARIABLE:?mensaje}`) y `.env.example` lista cada variable que el compose lee |
+| `Compose_ConfiguresTheServicesToWorkTogether` y `Compose_RunsTheSameImageTheIntegrationTestsUse` | Migraciones, seed, Jaeger y la dirección de la Api están configurados; SQL Server y Jaeger tienen la misma versión que en los tests de integración |
 
 Cada regla que filtra tipos verifica primero que el filtro seleccione los tipos esperados (**anti-vacío**). Sin esa comprobación, un filtro mal escrito no selecciona nada y la regla pasa sin revisar ningún tipo.
 

@@ -23,7 +23,7 @@ namespace FixtureHub.IntegrationTests;
 public sealed class SqlServerFixture : IAsyncLifetime
 {
     private readonly MsSqlContainer _container =
-        new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build();
+        new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-CU27-ubuntu-22.04").Build();
 
     private ServiceProvider? _provider;
     private FixtureHubApiFactory? _api;

@@ -8,5 +8,5 @@ public interface IIdempotencyStore
 
     void Add(IdempotencyRecord record);
 
-    void Remove(IdempotencyRecord record);
+    Task RemoveAsync(string key, CancellationToken cancellationToken);
 }
