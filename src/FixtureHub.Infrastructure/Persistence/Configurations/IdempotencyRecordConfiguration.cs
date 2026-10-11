@@ -11,7 +11,7 @@ internal sealed class IdempotencyRecordConfiguration : IEntityTypeConfiguration<
         builder.ToTable("IdempotencyRecords");
 
         builder.HasKey(record => record.Key);
-        builder.Property(record => record.Key).HasMaxLength(IdempotencyRecord.KeyMaxLength);
+        builder.Property(record => record.Key).HasMaxLength(IdempotencyRecord.StorageKeyMaxLength);
 
         builder.Property(record => record.Fingerprint)
             .HasMaxLength(IdempotencyRecord.FingerprintLength)

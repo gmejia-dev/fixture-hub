@@ -25,8 +25,8 @@ namespace FixtureHub.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("FixtureHub.Application.Abstractions.Idempotency.IdempotencyRecord", b =>
                 {
                     b.Property<string>("Key")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(137)
+                        .HasColumnType("nvarchar(137)");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("datetimeoffset");

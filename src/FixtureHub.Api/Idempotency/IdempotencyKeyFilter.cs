@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using FixtureHub.Api.Authentication;
 using FixtureHub.Api.Http;
 using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Errors;
@@ -24,6 +26,9 @@ internal sealed class IdempotencyKeyFilter(IdempotencyContext idempotency) : IEn
             return IdempotencyErrors.KeyTooLong.ToProblem();
 
         idempotency.Key = key;
+        idempotency.Scope = Guid.TryParse(context.HttpContext.User.FindFirstValue(JwtClaims.Subject), out var userId)
+            ? userId.ToString()
+            : null;
 
         var result = await next(context);
 

@@ -91,6 +91,29 @@ public sealed partial class IdempotencyKeyFilterTests(SqlServerFixture database)
     }
 
     [Fact]
+    public async Task Post_SameKeyFromTwoUsers_IsNotAReplayAndEachUserKeepsItsOwnResponse()
+    {
+        var key = Guid.NewGuid().ToString();
+        var userA = Guid.NewGuid();
+        var userB = Guid.NewGuid();
+        var clientA = database.CreateClient(TestTokens.Create(userId: userA));
+        var clientB = database.CreateClient(TestTokens.Create(userId: userB));
+
+        var first = await clientA.PostJsonAsync("/api/teams", new { name = TestData.UniqueName("Los Halcones"), country = "El Salvador" }, key);
+        var second = await clientB.PostJsonAsync("/api/teams", new { name = TestData.UniqueName("Los Pumas"), country = "Guatemala" }, key);
+        var repeatedByA = await clientA.PostJsonAsync("/api/teams", new { name = "otro cuerpo", country = "Honduras" }, key);
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        Assert.False(second.Headers.Contains("Idempotent-Replayed"));
+        Assert.NotEqual(await first.IdAsync(), await second.IdAsync());
+        Assert.Equal(HttpStatusCode.Conflict, repeatedByA.StatusCode);
+        var stored = await database.QueryAsync(context =>
+            context.IdempotencyRecords.Where(record => record.Key.EndsWith(key)).Select(record => record.Key).ToListAsync());
+        Assert.Equal(new[] { $"{userA}:{key}", $"{userB}:{key}" }.Order(), stored.Order());
+    }
+
+    [Fact]
     public async Task Put_WithoutKey_IsNotRejectedByTheFilter()
     {
         var response = await _client.PutAsJsonAsync($"/api/teams/{Guid.NewGuid()}", new { name = "Los Pumas", country = "Guatemala" });
