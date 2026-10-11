@@ -6,6 +6,7 @@ namespace FixtureHub.ArchitectureTests;
 public partial class DockerTests
 {
     private const string ApiDockerfile = "src/FixtureHub.Api/Dockerfile";
+    private const string FrontendDockerfile = "frontend/Dockerfile";
 
     [Fact]
     public void ApiDockerfile_BuildsWithTheSdkPinnedInGlobalJson()
@@ -18,14 +19,27 @@ public partial class DockerTests
         Assert.Contains($"mcr.microsoft.com/dotnet/sdk:{sdk}", images);
     }
 
-    [Fact]
-    public void ApiDockerfile_RunsAsANonRootUser()
+    [Theory]
+    [InlineData(ApiDockerfile, "USER $APP_UID")]
+    [InlineData(FrontendDockerfile, "USER node")]
+    public void Dockerfile_FinalStage_RunsAsANonRootUser(string dockerfile, string user)
     {
-        var lines = File.ReadAllLines(Repository.File(ApiDockerfile));
+        var lines = File.ReadAllLines(Repository.File(dockerfile));
 
-        var finalStage = lines.SkipWhile(line => !line.StartsWith("FROM mcr.microsoft.com/dotnet/aspnet:", StringComparison.Ordinal));
+        var finalStage = lines.SkipWhile(line => !FinalStage().IsMatch(line)).ToList();
 
-        Assert.Contains("USER $APP_UID", finalStage);
+        Assert.NotEmpty(finalStage);
+        Assert.Contains(user, finalStage);
+    }
+
+    [Fact]
+    public void FrontendDockerfile_UsesTheSameNodeImageInEveryStage()
+    {
+        var images = BaseImages(FrontendDockerfile);
+
+        Assert.Equal(3, images.Count);
+        Assert.Single(images.Distinct());
+        Assert.Matches(@"^node:\d+\.\d+\.\d+-alpine$", images[0]);
     }
 
     private static List<string> BaseImages(string dockerfile) =>
@@ -36,4 +50,7 @@ public partial class DockerTests
 
     [GeneratedRegex(@"^FROM\s+(?<image>\S+)")]
     private static partial Regex FromInstruction();
+
+    [GeneratedRegex(@"^FROM\s+\S+\s+AS\s+final$")]
+    private static partial Regex FinalStage();
 }
