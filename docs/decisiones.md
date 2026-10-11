@@ -76,7 +76,7 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 | Códigos HTTP | `Validation` 400, `NotFound` 404, `Conflict` 409, `Failure` 500. Un body o parámetro mal formado es 400 `Request.Malformed`; un error inesperado, 500 `Server.Unexpected` sin el mensaje de la excepción. |
 | `Location` de jugadores y goles | Apunta al agregado (`/api/teams/{teamId}`, `/api/matches/{matchId}`): jugadores y goles no existen fuera de su equipo o partido, y el detalle del agregado los incluye. |
 | `traceId` | Los 32 caracteres del trace W3C, el mismo que guarda `DomainEvents`. Si el cliente manda `traceparent`, se respeta. Toda respuesta, con error o sin él, lo trae también en el header `X-Trace-Id`. |
-| Paginación | Todos los listados aceptan `pageNumber` (desde 1), `pageSize` (de 1 a 100; 10 por defecto), `sortBy`, `sortDirection` (`asc` o `desc`, sin distinguir mayúsculas) y filtros por entidad. La respuesta trae `items`, `pageNumber`, `pageSize`, `totalRecords` y `totalPages`. |
+| Paginación | Todos los listados aceptan `pageNumber` (desde 1), `pageSize` (de 1 a 100; 10 por defecto), `sortBy`, `sortDirection` (`asc` o `desc`, sin distinguir mayúsculas) y filtros por entidad. La respuesta trae `data`, `pageNumber`, `pageSize`, `totalRecords` y `totalPages`, la forma que fija el enunciado. |
 | Ordenamiento | `sortBy` se valida contra una lista blanca por recurso (400 `Query.InvalidSortBy`) y el lector lo traduce a una columna con su propio diccionario: el texto del usuario nunca llega al SQL. Siempre se agrega un desempate único para que las páginas no repitan ni salten filas. |
 | Filtros de texto | Contienen el texto, sin distinguir mayúsculas (intercalación de SQL Server). Los comodines de `LIKE` del usuario se buscan literalmente. |
 | Fechas en la query string | ISO 8601 con zona (`2026-11-07T00:00:00Z`). El `+` de un offset debe ir codificado (`%2B`); sin codificar llega como espacio. |
@@ -208,6 +208,24 @@ Límites conocidos:
 - **La contraseña de `sa` se fija la primera vez que se crea el volumen.** Cambiarla después en el `.env` no la cambia en SQL Server: hay que borrar el volumen (`docker compose down -v`) o cambiarla con `ALTER LOGIN`.
 - **SQL Server no tiene imagen nativa para ARM** (Mac con chip M): corre con emulación, más lento.
 - **Las imágenes se construyen en la máquina.** El paso siguiente es construirlas en CI y publicarlas en un registro con su versión.
+
+## Colección de Postman y diagrama
+
+| Decisión | Motivo |
+|---|---|
+| **La colección es un recorrido del torneo en orden**, con verificaciones en cada request | Sirve para la demo y como prueba de humo de la Api desplegada: se corre completa con el Runner o con Newman contra Docker Compose, y cada request guarda los Ids que usan los siguientes (equipo, jugador, partido, gol). |
+| **Las verificaciones comunes van en el script de la colección** | `X-Trace-Id` en toda respuesta, ProblemDetails con `errorCode` y el mismo `traceId` en los errores, y el contrato de paginación en los listados se comprueban en todas las respuestas sin repetirlos en cada request. |
+| **El environment tiene la configuración; las variables de la colección, lo que genera la corrida** | `baseUrl`, el usuario y la contraseña cambian según dónde corre la Api; el token y los Ids son de cada corrida. La contraseña es de tipo `secret` y se sube vacía. Dos tests impiden subir la contraseña o los valores de una corrida. |
+| **Cada corrida es independiente** | Los nombres llevan un sufijo aleatorio y la última carpeta borra lo creado: la colección se puede correr varias veces sobre la misma base, también la de la demo. |
+| **Un test exige un request por endpoint** | Recorre los endpoints registrados en la Api: si se agrega uno, la colección no puede quedarse atrás. |
+| **Newman con versión fija** (`newman@6.2.2`) | Igual que las imágenes de Docker: el comando del README produce lo mismo hoy y dentro de un mes. Se descartó la 6.2.3, publicada dos días antes de armar la colección. |
+| **El diagrama de arquitectura en Mermaid**, dentro del Markdown | Es texto: se revisa en el diff de un pull request y GitHub lo dibuja. Una imagen exportada se desactualiza sin que nadie lo note. Un test verifica que el del README sea el mismo de `docs/arquitectura.md`. |
+| **Las flechas del diagrama son el flujo de un request** | Muestran por dónde pasan una escritura y una lectura. Entre Application e Infrastructure, la dependencia de código va al revés (Infrastructure implementa las interfaces de Application); eso se explica en la sección de capas de `docs/arquitectura.md`. |
+
+Límites conocidos:
+
+- **La colección no prueba el 403:** el único rol que existe es `Admin`. Lo prueban los tests de integración con un token de otro rol firmado dentro del test.
+- **Newman prueba la Api, no el frontend.** Los flujos del frontend se verificaron a mano; Playwright está en extensiones futuras.
 
 ## Extensiones futuras
 

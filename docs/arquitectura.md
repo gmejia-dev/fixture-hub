@@ -17,6 +17,92 @@ El backend de FixtureHub sigue **Clean Architecture**: el código se organiza en
 └─────────────────────────────────────────┘
 ```
 
+## Diagrama de arquitectura
+
+```mermaid
+flowchart TB
+    browser(["Navegador"])
+
+    subgraph compose["docker compose"]
+        subgraph frontend["frontend · Next.js 16"]
+            actions["Server Actions<br/>escrituras con JWT"]
+            rsc["Server Components<br/>lecturas"]
+        end
+
+        subgraph api["api · ASP.NET Core 10"]
+            subgraph layerApi["Api · orquesta"]
+                http["Minimal APIs<br/>log del request · errores<br/>JWT · X-Trace-Id<br/>filtro Idempotency-Key<br/>Result → 200 · 201 · 204<br/>400 · 404 · 409"]
+            end
+
+            subgraph layerApp["Application · CQRS"]
+                commands["Commands<br/>Tracing → Logging<br/>→ Validation → Transaction<br/>→ Idempotency → Handler"]
+                queries["Queries<br/>Tracing → Validation<br/>→ Handler"]
+            end
+
+            subgraph layerDomain["Domain"]
+                domain["Entidades y reglas<br/>Result · eventos de dominio"]
+            end
+
+            subgraph layerInfra["Infrastructure"]
+                idempotency["Idempotency storage<br/>candado por clave"]
+                uow["EF Core + UnitOfWork<br/>commit explícito"]
+                dapper["Dapper<br/>paginación en SQL"]
+            end
+
+            subgraph layerAppEvents["Application · eventos"]
+                projection["Handlers de eventos<br/>actualizan la tabla"]
+            end
+        end
+
+        subgraph sqlserver["sqlserver · SQL Server 2022"]
+            idempotencyTable[("IdempotencyRecords")]
+            eventsTable[("DomainEvents<br/>con TraceId")]
+            tables[("Teams · Players<br/>Matches · Goals")]
+            standings[("TeamStandings")]
+        end
+
+        jaeger["jaeger · trazas"]
+    end
+
+    stdout["stdout · logs JSON"]
+
+    browser --> actions
+    browser --> rsc
+    actions -->|POST · PUT · PATCH · DELETE| http
+    rsc -->|GET| http
+    http --> commands
+    http --> queries
+    commands --> domain
+    commands --> idempotency
+    commands --> uow
+    uow -->|eventos| projection
+    uow --> eventsTable
+    uow --> tables
+    projection --> standings
+    idempotency --> idempotencyTable
+    queries --> dapper
+    dapper --> tables
+    dapper --> standings
+    api -.->|trazas OTLP| jaeger
+    api -.->|logs con TraceId| stdout
+```
+
+Las flechas siguen el **flujo de un request** (quién llama a quién), no las dependencias de código: esas apuntan siempre hacia adentro, hacia Domain (ver [Capas](#capas)). Las líneas punteadas son la observabilidad: logs y trazas que salen de la Api.
+
+| Lo que pide el enunciado | Dónde está en el diagrama |
+|---|---|
+| Capas | Los bloques Api, Application, Domain e Infrastructure dentro del contenedor `api` |
+| CQRS | Dos caminos que no se cruzan: Commands → EF Core y Queries → Dapper |
+| EF Core (escritura) | `EF Core + UnitOfWork`, al que solo llegan los commands |
+| Dapper (lectura) | `Dapper`, al que solo llegan las queries; pagina en SQL |
+| Unit of Work | `EF Core + UnitOfWork`: el `TransactionDecorator` hace el commit explícito y el Unit of Work despacha los eventos antes de guardar |
+| Idempotency storage | `Idempotency storage` → tabla `IdempotencyRecords`, en la misma transacción que el command |
+| Eventos | UnitOfWork → handlers de eventos → `TeamStandings`; cada evento queda en `DomainEvents` con el TraceId |
+| Logs | `api` → stdout: JSON con el TraceId en cada evento |
+| Trace flow | `api` → Jaeger por OTLP; el recorrido completo está en [Observabilidad](#recorrido-de-una-traza) |
+| Frontend | `frontend · Next.js 16`: lee con Server Components y escribe con Server Actions |
+| Docker | El bloque `docker compose`: frontend, api, sqlserver y jaeger en una red interna |
+
 ## Capas
 
 | Proyecto | Responsabilidad | Depende de |
@@ -312,6 +398,36 @@ HTTP (traceparent opcional)
 
 El *CorrelationId* de FixtureHub **es** el TraceId: no hay un segundo identificador que mantener sincronizado. Con el valor de `X-Trace-Id` (o del `traceId` de un error) se encuentran la traza en Jaeger, todos los logs de ese request y los eventos de dominio que generó.
 
+### Recorrido de una traza
+
+Un gol registrado desde el frontend, de punta a punta. Todo lo que deja el request (logs, fila en `DomainEvents`, spans y el header de la respuesta) lleva el mismo TraceId.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant N as Next.js
+    participant A as Api
+    participant C as Command
+    participant U as UnitOfWork
+    participant S as SQL Server
+    participant L as stdout (logs)
+    participant J as Jaeger
+
+    N->>A: POST /api/matches/{id}/goals<br/>Bearer · Idempotency-Key
+    Note over A: span del request: su TraceId W3C<br/>es el CorrelationId (respeta traceparent)
+    A->>C: span RegisterGoalCommand
+    C->>S: BEGIN · sp_getapplock · SELECT
+    C->>U: CommitAsync (TransactionDecorator)
+    U-->>L: log GoalScored + TraceId
+    U->>S: INSERT DomainEvents (TraceId) · COMMIT
+    C-->>L: log del command: duración, resultado
+    A->>N: 201 Created + X-Trace-Id
+    A-->>L: log del request: ruta, status, duración
+    A--)J: spans OTLP: request → command → SQL
+```
+
+Con el valor de `X-Trace-Id` se encuentran la traza en Jaeger (búsqueda por Trace ID), los logs del request (`docker compose logs api` filtrando por `@tr`) y el evento `GoalScored` en la tabla `DomainEvents`.
+
 ### Trazas: OpenTelemetry + Jaeger
 
 ```
@@ -530,6 +646,11 @@ Las reglas de dependencia se verifican con tests de arquitectura (`tests/Fixture
 | `Dockerfile_FinalStage_RunsAsANonRootUser` y `FrontendDockerfile_UsesTheSameNodeImageInEveryStage` | Las dos imágenes corren sin root; el frontend usa una sola versión fija de Node.js |
 | `Compose_TakesEverySecretFromARequiredVariable` y `EnvExample_DocumentsEveryVariableTheComposeFileReads` | Ningún secreto está escrito en `docker-compose.yml` (todos son `${VARIABLE:?mensaje}`) y `.env.example` lista cada variable que el compose lee |
 | `Compose_ConfiguresTheServicesToWorkTogether` y `Compose_RunsTheSameImageTheIntegrationTestsUse` | Migraciones, seed, Jaeger y la dirección de la Api están configurados; SQL Server y Jaeger tienen la misma versión que en los tests de integración |
+| `Environment_DoesNotContainTheAdminPassword` y `Collection_DoesNotContainTheValuesOfARun` | La colección de Postman y su environment se suben sin la contraseña del administrador ni los valores de una corrida (el token, los Ids) |
+| `Environment_PointsToTheSameAddressAsDotnetRunTheComposeAndTheHttpFile` | Postman, `dotnet run`, docker-compose y `FixtureHub.Api.http` usan la misma dirección de la Api |
+| `ArchitectureDiagram_IsTheSameInTheReadmeAndInTheArchitectureDocument` | El diagrama del README es el mismo de este documento |
+
+En los tests de integración, `PostmanCollectionTests` recorre los endpoints registrados en la Api y exige que cada uno tenga un request en la colección de Postman.
 
 Cada regla que filtra tipos verifica primero que el filtro seleccione los tipos esperados (**anti-vacío**). Sin esa comprobación, un filtro mal escrito no selecciona nada y la regla pasa sin revisar ningún tipo.
 

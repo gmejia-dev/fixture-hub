@@ -87,3 +87,4 @@ En el frontend (TypeScript) se siguen las convenciones de React y Next.js:
   - `dotnet format whitespace FixtureHub.slnx --verify-no-changes` sin cambios.
   - En `frontend/`: `npm run lint`, `npm run typecheck`, `npm test` y `npm run format:check` en verde.
   - Si la Api agrega un código de error, su traducción en `frontend/src/i18n/messages/es.json` y `en.json` (`FrontendCatalogTests` falla si falta).
+  - Si la Api agrega un endpoint, su request en la colección de Postman (`PostmanCollectionTests` falla si falta), y la colección en verde con Newman contra la Api levantada.

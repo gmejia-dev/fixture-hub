@@ -48,9 +48,9 @@ public sealed class TopScorerQueryTests(SqlServerFixture database)
         var homeScorers = await GetTopScorersAsync($"teamId={home}");
         var awayScorers = await GetTopScorersAsync($"teamId={away}");
 
-        var scorer = Assert.Single(homeScorers.Items);
+        var scorer = Assert.Single(homeScorers.Data);
         Assert.Equal((striker, "Ana Pérez", 3), (scorer.PlayerId, scorer.PlayerName, scorer.Goals));
-        Assert.Empty(awayScorers.Items);
+        Assert.Empty(awayScorers.Data);
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public sealed class TopScorerQueryTests(SqlServerFixture database)
         foreach (var (player, minute) in new[] { (beto, 1), (ana, 2), (beto, 3), (ana, 4), (carla, 5) })
             await _client.ScoreAsync(matchId, player, minute);
 
-        var scorers = (await GetTopScorersAsync($"teamId={team}")).Items;
+        var scorers = (await GetTopScorersAsync($"teamId={team}")).Data;
 
         Assert.Equal([ana, beto, carla], scorers.Select(scorer => scorer.PlayerId));
         Assert.Equal(scorers[0].Position, scorers[1].Position);
@@ -84,7 +84,7 @@ public sealed class TopScorerQueryTests(SqlServerFixture database)
 
         await _client.DeleteAsync($"/api/teams/{team}/players/{player}");
 
-        Assert.Equal([player], (await GetTopScorersAsync($"teamId={team}")).Items.Select(scorer => scorer.PlayerId));
+        Assert.Equal([player], (await GetTopScorersAsync($"teamId={team}")).Data.Select(scorer => scorer.PlayerId));
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public sealed class TopScorerQueryTests(SqlServerFixture database)
 
         await _client.DeleteAsync($"/api/teams/{team}");
 
-        Assert.Empty((await GetTopScorersAsync($"teamId={team}")).Items);
+        Assert.Empty((await GetTopScorersAsync($"teamId={team}")).Data);
     }
 
     [Theory]

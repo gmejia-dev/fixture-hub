@@ -2,8 +2,6 @@
 
 Sistema de gestión de torneos de fútbol: equipos, jugadores, calendario de partidos, registro de goles en vivo, tabla de posiciones y goleadores.
 
-> **Estado:** en desarrollo. Este README se completa conforme avanzan las [issues](https://github.com/gmejia-dev/fixture-hub/issues).
-
 ## Stack
 
 | Área | Tecnología |
@@ -16,8 +14,85 @@ Sistema de gestión de torneos de fútbol: equipos, jugadores, calendario de par
 | Seguridad | JWT (lecturas públicas, escrituras con rol Admin) |
 | Observabilidad | Serilog, CorrelationId/TraceId, OpenTelemetry + Jaeger |
 | Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4 |
-| Tests | xUnit, Testcontainers (SQL Server real), NetArchTest; Vitest en el frontend |
+| Tests | xUnit, Testcontainers (SQL Server real), NetArchTest; Vitest en el frontend; colección de Postman con Newman |
 | Infraestructura | Docker (imágenes multi-etapa sin root) + docker-compose con healthchecks |
+
+## Arquitectura
+
+```mermaid
+flowchart TB
+    browser(["Navegador"])
+
+    subgraph compose["docker compose"]
+        subgraph frontend["frontend · Next.js 16"]
+            actions["Server Actions<br/>escrituras con JWT"]
+            rsc["Server Components<br/>lecturas"]
+        end
+
+        subgraph api["api · ASP.NET Core 10"]
+            subgraph layerApi["Api · orquesta"]
+                http["Minimal APIs<br/>log del request · errores<br/>JWT · X-Trace-Id<br/>filtro Idempotency-Key<br/>Result → 200 · 201 · 204<br/>400 · 404 · 409"]
+            end
+
+            subgraph layerApp["Application · CQRS"]
+                commands["Commands<br/>Tracing → Logging<br/>→ Validation → Transaction<br/>→ Idempotency → Handler"]
+                queries["Queries<br/>Tracing → Validation<br/>→ Handler"]
+            end
+
+            subgraph layerDomain["Domain"]
+                domain["Entidades y reglas<br/>Result · eventos de dominio"]
+            end
+
+            subgraph layerInfra["Infrastructure"]
+                idempotency["Idempotency storage<br/>candado por clave"]
+                uow["EF Core + UnitOfWork<br/>commit explícito"]
+                dapper["Dapper<br/>paginación en SQL"]
+            end
+
+            subgraph layerAppEvents["Application · eventos"]
+                projection["Handlers de eventos<br/>actualizan la tabla"]
+            end
+        end
+
+        subgraph sqlserver["sqlserver · SQL Server 2022"]
+            idempotencyTable[("IdempotencyRecords")]
+            eventsTable[("DomainEvents<br/>con TraceId")]
+            tables[("Teams · Players<br/>Matches · Goals")]
+            standings[("TeamStandings")]
+        end
+
+        jaeger["jaeger · trazas"]
+    end
+
+    stdout["stdout · logs JSON"]
+
+    browser --> actions
+    browser --> rsc
+    actions -->|POST · PUT · PATCH · DELETE| http
+    rsc -->|GET| http
+    http --> commands
+    http --> queries
+    commands --> domain
+    commands --> idempotency
+    commands --> uow
+    uow -->|eventos| projection
+    uow --> eventsTable
+    uow --> tables
+    projection --> standings
+    idempotency --> idempotencyTable
+    queries --> dapper
+    dapper --> tables
+    dapper --> standings
+    api -.->|trazas OTLP| jaeger
+    api -.->|logs con TraceId| stdout
+```
+
+- **Clean Architecture:** las dependencias de código apuntan hacia adentro (Api → Infrastructure → Application → Domain); las flechas del diagrama son el flujo de un request. Tests de arquitectura verifican la regla en el código compilado y en los `.csproj`.
+- **CQRS:** los commands pasan por el dominio y se guardan con EF Core dentro de una transacción del Unit of Work; las queries leen con Dapper y paginan en SQL. No hay EF Core en la lectura ni Dapper en la escritura.
+- **Pipeline de decorators** en cada command: traza, log, validación, transacción (el commit explícito lo hace el `TransactionDecorator`, nunca el handler) e idempotencia.
+- **Eventos de dominio** despachados por el Unit of Work antes de guardar, en la misma transacción: actualizan la proyección de la tabla de posiciones y quedan registrados en `DomainEvents` con el TraceId del request.
+
+El detalle, con el recorrido de una traza de punta a punta, está en [docs/arquitectura.md](docs/arquitectura.md).
 
 ## Estructura del repositorio
 
@@ -33,6 +108,7 @@ fixture-hub/
 │   ├── FixtureHub.UnitTests/          Dominio, handlers y decorators, con fakes
 │   ├── FixtureHub.IntegrationTests/   Persistencia, lecturas e idempotencia contra SQL Server en Docker; la Api por HTTP; logs y trazas
 │   └── FixtureHub.ArchitectureTests/  Reglas de dependencia, visibilidad y convenciones
+├── postman/                        Colección de Postman y su environment
 ├── docs/                           Arquitectura y decisiones de diseño
 ├── docker-compose.yml              SQL Server, Api, frontend y Jaeger
 ├── .env.example                    Variables de entorno con secretos para docker-compose (copiar como .env)
@@ -65,7 +141,7 @@ El comando vuelve cuando todo está sano. La primera vez construye las imágenes
 | Servicio | Dirección | Qué es |
 |---|---|---|
 | Frontend | `http://localhost:3000` | El sitio. Para administrar, inicia sesión con `Admin__Username` y `Admin__Password` del `.env` |
-| Api | `http://localhost:5065` | El mismo puerto que con `dotnet run`: [`FixtureHub.Api.http`](src/FixtureHub.Api/FixtureHub.Api.http) y Postman funcionan igual |
+| Api | `http://localhost:5065` | El mismo puerto que con `dotnet run`: [`FixtureHub.Api.http`](src/FixtureHub.Api/FixtureHub.Api.http) y la [colección de Postman](#colección-de-postman) funcionan igual |
 | Jaeger | `http://localhost:16686` | Las trazas, bajo el servicio `fixturehub-api` |
 | SQL Server | `localhost,1433` (usuario `sa`) | Para revisar la base con SSMS o Azure Data Studio |
 
@@ -163,7 +239,7 @@ El perfil `http` ya apunta la Api a `http://localhost:4317` (`OTEL_EXPORTER_OTLP
 
 | | |
 |---|---|
-| Lecturas | `GET /api/teams`, `/api/teams/{id}`, `/api/teams/{id}/players`, `/api/matches`, `/api/matches/{id}`, `/api/standings`, `/api/top-scorers`, con `pageNumber`, `pageSize` (máx. 100), `sortBy`, `sortDirection` y filtros |
+| Lecturas | `GET /api/teams`, `/api/teams/{id}`, `/api/teams/{id}/players`, `/api/matches`, `/api/matches/{id}`, `/api/standings`, `/api/top-scorers`, con `pageNumber`, `pageSize` (máx. 100), `sortBy`, `sortDirection` y filtros. Los listados responden `{ data, pageNumber, pageSize, totalRecords, totalPages }` |
 | Escrituras | POST, PUT, PATCH y DELETE sobre equipos, jugadores, partidos y goles |
 | Autenticación | `POST /api/auth/login` devuelve un JWT (60 minutos). Las lecturas son públicas; las escrituras exigen `Authorization: Bearer <token>` con el rol Admin (401 sin token válido, 403 sin el rol) |
 | Idempotencia | Todo POST exige el header `Idempotency-Key`; repetir la misma petición devuelve la respuesta original con `Idempotent-Replayed: true` |
@@ -172,6 +248,33 @@ El perfil `http` ya apunta la Api a `http://localhost:4317` (`OTEL_EXPORTER_OTLP
 | Salud | `GET /health/live` (el proceso responde) y `GET /health/ready` (además llega a SQL Server), fuera de `/api` y sin token |
 
 El detalle está en [docs/arquitectura.md](docs/arquitectura.md#api-rest).
+
+## Colección de Postman
+
+[`postman/FixtureHub.postman_collection.json`](postman/FixtureHub.postman_collection.json) es un recorrido completo del torneo: 84 requests en orden, cada uno con sus verificaciones. El environment [`postman/FixtureHub.postman_environment.json`](postman/FixtureHub.postman_environment.json) tiene las variables `baseUrl` (`http://localhost:5065`, la misma con Docker Compose y con `dotnet run`), `adminUsername` y `adminPassword`.
+
+1. Importa los dos archivos en Postman y elige el environment **FixtureHub local**.
+2. Completa `adminPassword` con `Admin__Password` del `.env` (o la contraseña de user-secrets). Se deja vacía en el repositorio y un test lo verifica.
+3. Corre la colección completa con el Runner, o desde la terminal con [Newman](https://github.com/postmanlabs/newman):
+
+```bash
+npx newman@6.2.2 run postman/FixtureHub.postman_collection.json -e postman/FixtureHub.postman_environment.json --env-var "adminPassword=<la contraseña>"
+```
+
+| Carpeta | Qué recorre |
+|---|---|
+| 0. Salud | `/health/live` y `/health/ready` |
+| 1. Autenticación | Login del administrador; el token queda para las escrituras |
+| 2. Equipos · 3. Jugadores | CRUD, PUT repetido (idempotente), dorsales y filtros |
+| 4. Partidos | Programar, reprogramar (PATCH), cancelar y eliminar; DELETE repetido |
+| 5. Resultado en vivo | Iniciar, goles, autogol, anulación, finalizar, corrección del resultado y la tabla recalculada |
+| 6. Reportes | Tabla de posiciones (verifica puntos, diferencia de gol y el orden) y goleadores |
+| 7. Filtros y paginación | Páginas que no se repiten, página fuera de rango, filtros por país, estado, equipo y fechas, orden dinámico |
+| 8. Idempotencia | Clave nueva, repetición con `Idempotent-Replayed`, clave reusada con otro body (409), sin clave y clave demasiado larga (400) |
+| 9. Errores | 400 de validación, JSON mal formado y lista blanca de `sortBy`; 401; 404 con `traceparent` propio; 409 por nombre, dorsal, horario, estado del partido y equipo con partidos pendientes |
+| 10. Limpieza | Borra lo creado (borrado lógico): los equipos salen de la tabla y sus partidos quedan en el historial |
+
+En **todas** las respuestas, un script de la colección verifica el header `X-Trace-Id`; en los errores, que sean ProblemDetails con `errorCode` y el mismo `traceId`; y en los listados, el contrato de paginación. Cada corrida usa un sufijo propio en los nombres y termina borrando lo que creó, así que se puede correr varias veces sobre la misma base. Un test de integración exige que cada endpoint de la Api tenga su request en la colección.
 
 ## Cómo correr los tests
 
@@ -189,6 +292,24 @@ dotnet test tests/FixtureHub.UnitTests
 dotnet test tests/FixtureHub.ArchitectureTests
 ```
 
+| Proyecto | Tests | Qué cubre |
+|---|---|---|
+| `FixtureHub.UnitTests` | 306 | Dominio (reglas del partido, tabla, `Result`), handlers, validadores y decorators con fakes escritos a mano |
+| `FixtureHub.IntegrationTests` | 200 | SQL Server real en Docker: EF Core, Unit of Work, idempotencia (incluidas las carreras), lecturas con Dapper, seed, la Api por HTTP, autorización, logs y trazas |
+| `FixtureHub.ArchitectureTests` | 56 | Reglas de dependencia entre capas, visibilidad, convenciones, secretos fuera del repositorio, Docker, catálogos del frontend, Postman y documentación |
+| `frontend` (Vitest) | 64 | Traducción, catálogos, errores de la Api, idioma, fechas, paginación, redirecciones y token |
+
+Las pruebas mínimas que pide el enunciado:
+
+| Pide el enunciado | Tests |
+|---|---|
+| Tabla de posiciones | `TeamStandingTests` (dominio); `TeamCreatedHandlerTests`, `MatchFinishedHandlerTests` y `MatchResultCorrectedHandlerTests` (la proyección); contra SQL Server, `StandingsProjectionTests` y `StandingsQueryTests` (orden, posición y filtros) |
+| Cálculo de puntos | `TeamStandingTests.RecordResult_AddsOnePlayedAndThePointsOfTheOutcome` (victoria 3, empate 1, derrota 0) y `RecordResult_SeveralMatches_AccumulatesEverything` |
+| Diferencia de gol | `TeamStandingTests.RecordResult_AddsTheGoalsAndTheGoalDifference`; el orden por diferencia, en `StandingsQueryTests` |
+| Result Pattern | `ResultTests` y `ErrorTests`; `ProblemMappingTests` (de `Result` a 400, 404 y 409) |
+| Idempotencia | `IdempotencyDecoratorTests` (unitarios: clave nueva, repetición, otra huella, vencida, en curso, por usuario); contra SQL Server, `IdempotencyTests`, `IdempotencyKeyFilterTests` y `ExpiredIdempotencyRecordsCleanupTests` |
+| Commit del Unit of Work | `TransactionDecoratorTests` (commit si el handler sale bien; rollback si falla, si lanza o si el commit falla); contra SQL Server, `UnitOfWorkTests` |
+
 Los tests de arquitectura incluyen `FrontendCatalogTests`: por reflexión, cada código de error de la Api debe tener su traducción en los catálogos del frontend (`frontend/src/i18n/messages/es.json` y `en.json`).
 
 En el frontend (desde `frontend/`):
@@ -200,8 +321,26 @@ En el frontend (desde `frontend/`):
 | `npm run typecheck` | TypeScript estricto, con los tipos de las rutas que genera Next.js |
 | `npm run format:check` | Prettier |
 
+## Decisiones de diseño
+
+Las principales, con su motivo completo en [docs/decisiones.md](docs/decisiones.md):
+
+- **CQRS con handlers y decorators propios, sin MediatR.** El pipeline queda explícito y verificado por un test; las interfaces son de Application, así que cambiar de enfoque no toca los handlers.
+- **La tabla de posiciones es una proyección** (`TeamStandings`) que actualizan los eventos de dominio en la misma transacción que el partido. La regla de puntos vive una sola vez, en C#; Dapper solo ordena y pagina.
+- **Goles en vivo**, con autogol y anulación mientras el partido está en curso. Después de finalizado, el resultado solo cambia con una corrección que exige motivo y deja historial (PUT idempotente).
+- **`Idempotency-Key` obligatorio en todo POST**, guardada en la misma transacción que los cambios, con un candado por clave (`sp_getapplock`) para los reintentos simultáneos y claves separadas por usuario.
+- **La API devuelve códigos de error, no textos:** `errorCode` y `metadata` en ProblemDetails. El frontend traduce al español o al inglés, y un test verifica que cada código tenga traducción.
+- **El CorrelationId es el TraceId W3C:** un solo identificador en logs, errores, `DomainEvents`, el header `X-Trace-Id` y Jaeger.
+- **Lecturas públicas y escrituras con el rol Admin** (JWT HS256); los secretos nunca están en el repositorio.
+- **El navegador nunca llama a la Api:** Next.js lee con Server Components y escribe con Server Actions; el JWT vive en una cookie `HttpOnly`.
+- **Borrado lógico y DELETE idempotente:** un equipo eliminado sale de la tabla, pero sus partidos jugados quedan en el historial.
+
+## Extensiones futuras
+
+Detalladas en [docs/decisiones.md](docs/decisiones.md#extensiones-futuras): varios torneos con inscripción de equipos, jugadores en varios equipos (N:M), administración de usuarios y más roles, métricas y logs centralizados, goles empujados en tiempo real (SignalR o Server-Sent Events), trazas desde el servidor de Next.js, pruebas de punta a punta con Playwright y un pipeline de CI/CD que publique las imágenes.
+
 ## Documentación
 
-- [Arquitectura](docs/arquitectura.md): capas, regla de dependencias, flujo de un request, observabilidad, frontend y Docker.
-- [Decisiones de diseño](docs/decisiones.md): qué se decidió y por qué.
+- [Arquitectura](docs/arquitectura.md): diagrama, capas, regla de dependencias, flujo de un request, observabilidad, frontend y Docker.
+- [Decisiones de diseño](docs/decisiones.md): qué se decidió y por qué, límites conocidos y extensiones futuras.
 - [Guía de contribución](CONTRIBUTING.md): convención de commits, ramas y pull requests.

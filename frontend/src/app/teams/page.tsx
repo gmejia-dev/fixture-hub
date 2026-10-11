@@ -79,10 +79,10 @@ export default async function TeamsPage({ searchParams }: PageProps<"/teams">) {
                   </tr>
                 </thead>
                 <tbody>
-                  {result.data.items.length === 0 && (
+                  {result.data.data.length === 0 && (
                     <EmptyRow columns={3} message={t("list.empty")} />
                   )}
-                  {result.data.items.map((team) => (
+                  {result.data.data.map((team) => (
                     <tr key={team.id} className={row}>
                       <td className={cell}>
                         <Link href={`/teams/${team.id}`} className={link}>

@@ -110,10 +110,10 @@ export default async function StandingsPage({ searchParams }: PageProps<"/standi
                   </tr>
                 </thead>
                 <tbody>
-                  {result.data.items.length === 0 && (
+                  {result.data.data.length === 0 && (
                     <EmptyRow columns={10} message={t("list.empty")} />
                   )}
-                  {result.data.items.map((standing) => (
+                  {result.data.data.map((standing) => (
                     <tr key={standing.teamId} className={row}>
                       <td className={`${cell} font-semibold text-slate-500`}>
                         {standing.position}

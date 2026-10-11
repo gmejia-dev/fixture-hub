@@ -31,13 +31,13 @@ public sealed class SeedTests(SqlServerFixture database)
                 ("Canaleros de Logística", 2, -1),
                 ("Pinoleros de Auditoría", 0, -5)
             ],
-            standings!.Items.Select(row => (row.TeamName, row.Points, row.GoalDifference)));
+            standings!.Data.Select(row => (row.TeamName, row.Points, row.GoalDifference)));
         Assert.Equal(
             [(1, "Andrés Flores", 6), (1, "Jorge Banegas", 6), (3, "Pablo Juárez", 3)],
-            scorers!.Items.Select(scorer => (scorer.Position, scorer.PlayerName, scorer.Goals)));
+            scorers!.Data.Select(scorer => (scorer.Position, scorer.PlayerName, scorer.Goals)));
         Assert.Equal(
             [("Cancelled", 1), ("Finished", 9), ("InProgress", 1), ("Scheduled", 4)],
-            matches!.Items.GroupBy(match => match.Status).Select(group => (group.Key, group.Count())).Order());
+            matches!.Data.GroupBy(match => match.Status).Select(group => (group.Key, group.Count())).Order());
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public sealed class SeedTests(SqlServerFixture database)
 
         var teams = await client.GetFromJsonAsync<PagedResult<TeamSummary>>("/api/teams");
         Assert.Equal(6, teams!.TotalRecords);
-        Assert.All(teams.Items, team => Assert.Equal(7, team.PlayerCount));
+        Assert.All(teams.Data, team => Assert.Equal(7, team.PlayerCount));
     }
 
     private FixtureHubApiFactory NewApiOnAnEmptyDatabase() =>
