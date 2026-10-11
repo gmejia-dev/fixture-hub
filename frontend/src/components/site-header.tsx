@@ -1,11 +1,13 @@
 import Link from "next/link";
+import { logout } from "@/actions/auth";
 import { changeLocale } from "@/actions/locale";
 import { locales } from "@/i18n/config";
 import { getI18n } from "@/i18n/server";
-import { NavLinks } from "./nav-links";
+import { getSession } from "@/lib/auth/session";
+import { LoginLink, NavLinks } from "./nav-links";
 
 export async function SiteHeader() {
-  const { t, locale } = await getI18n();
+  const [{ t, locale }, session] = await Promise.all([getI18n(), getSession()]);
 
   const links = [
     { href: "/", label: t("nav.home") },
@@ -51,6 +53,26 @@ export async function SiteHeader() {
               </button>
             ))}
           </form>
+
+          {session ? (
+            <div className="flex items-center gap-2">
+              <span className="text-slate-600">
+                {session.username}
+                {session.isAdmin && (
+                  <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs font-semibold text-emerald-800">
+                    {t("auth.adminBadge")}
+                  </span>
+                )}
+              </span>
+              <form action={logout}>
+                <button className="text-slate-600 hover:text-slate-900 hover:underline">
+                  {t("auth.logout")}
+                </button>
+              </form>
+            </div>
+          ) : (
+            <LoginLink label={t("auth.login")} />
+          )}
         </div>
       </div>
     </header>

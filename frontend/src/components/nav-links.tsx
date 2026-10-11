@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 export function NavLinks({ links }: { links: { href: string; label: string }[] }) {
   const pathname = usePathname();
@@ -27,5 +28,34 @@ export function NavLinks({ links }: { links: { href: string; label: string }[] }
         );
       })}
     </nav>
+  );
+}
+
+export function LoginLink({ label }: { label: string }) {
+  return (
+    <Suspense fallback={<LoginAnchor href="/login" label={label} />}>
+      <LoginLinkWithReturn label={label} />
+    </Suspense>
+  );
+}
+
+function LoginLinkWithReturn({ label }: { label: string }) {
+  const pathname = usePathname();
+  const search = useSearchParams().toString();
+  const current = search ? `${pathname}?${search}` : pathname;
+
+  if (pathname === "/login") return <LoginAnchor href="/login" label={label} />;
+
+  return <LoginAnchor href={`/login?returnTo=${encodeURIComponent(current)}`} label={label} />;
+}
+
+function LoginAnchor({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="rounded-md bg-slate-800 px-3 py-1.5 font-medium text-white hover:bg-slate-700"
+    >
+      {label}
+    </Link>
   );
 }

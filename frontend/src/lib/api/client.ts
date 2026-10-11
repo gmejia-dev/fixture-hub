@@ -23,6 +23,10 @@ export function apiGet<T>(path: string, query?: QueryValues): Promise<ApiResult<
   return request<T>(path, { method: "GET", query });
 }
 
+export function apiPostAnonymous<T>(path: string, body: unknown): Promise<ApiResult<T>> {
+  return request<T>(path, { method: "POST", body });
+}
+
 async function request<T>(path: string, options: RequestOptions): Promise<ApiResult<T>> {
   const headers = new Headers({ Accept: "application/json" });
   if (options.body !== undefined) headers.set("Content-Type", "application/json");
