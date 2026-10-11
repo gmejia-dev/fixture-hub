@@ -1,7 +1,14 @@
 import "server-only";
 import { unstable_rethrow } from "next/navigation";
+import { getAccessToken } from "@/lib/auth/session";
 import { apiBaseUrl } from "@/lib/env";
-import { networkProblem, toProblem, type Problem } from "./problem";
+import {
+  clientProblem,
+  networkProblem,
+  toProblem,
+  unauthenticatedErrorCode,
+  type Problem,
+} from "./problem";
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; problem: Problem };
 
@@ -25,6 +32,17 @@ export function apiGet<T>(path: string, query?: QueryValues): Promise<ApiResult<
 
 export function apiPostAnonymous<T>(path: string, body: unknown): Promise<ApiResult<T>> {
   return request<T>(path, { method: "POST", body });
+}
+
+export async function apiWrite<T = undefined>(
+  method: WriteMethod,
+  path: string,
+  options: { body?: unknown; idempotencyKey?: string } = {},
+): Promise<ApiResult<T>> {
+  const token = await getAccessToken();
+  if (!token) return { ok: false, problem: clientProblem(401, unauthenticatedErrorCode) };
+
+  return request<T>(path, { method, token, ...options });
 }
 
 async function request<T>(path: string, options: RequestOptions): Promise<ApiResult<T>> {

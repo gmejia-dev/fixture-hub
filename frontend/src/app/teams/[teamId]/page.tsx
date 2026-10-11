@@ -1,14 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { deleteTeam } from "@/actions/teams";
 import { FilterForm, TextFilter } from "@/components/filter-form";
+import { ActionButton } from "@/components/forms/form-parts";
+import { AddPlayerForm, EditTeamForm, PlayerRow } from "@/components/forms/team-forms";
 import { EmptyRow, PageTitle, SectionTitle } from "@/components/page-title";
 import { Pagination } from "@/components/pagination";
 import { ProblemAlert } from "@/components/problem-alert";
 import { SortHeader } from "@/components/sort-header";
-import { card, cell, link, row, table, tableWrapper } from "@/components/styles";
+import { card, headerCell, link, table, tableWrapper } from "@/components/styles";
 import { getI18n } from "@/i18n/server";
 import { getPlayers, getTeam, playerSortFields } from "@/lib/api/queries";
+import { getSession } from "@/lib/auth/session";
+import { newIdempotencyKey } from "@/lib/idempotency";
 import { isGuid } from "@/lib/ids";
 import { listQuery, param, parseListParams } from "@/lib/paging";
 
@@ -30,10 +35,11 @@ export default async function TeamPage({ params, searchParams }: PageProps<"/tea
   const list = parseListParams(search, playerSortFields);
   const name = param(search, "name");
 
-  const [{ t }, team, players] = await Promise.all([
+  const [{ t }, team, players, session] = await Promise.all([
     getI18n(),
     getTeam(teamId),
     getPlayers(teamId, list, { name }),
+    getSession(),
   ]);
 
   if (!team.ok) {
@@ -41,6 +47,7 @@ export default async function TeamPage({ params, searchParams }: PageProps<"/tea
     return <ProblemAlert problem={team.problem} />;
   }
 
+  const isAdmin = session?.isAdmin ?? false;
   const pathname = `/teams/${teamId}`;
   const paging = listQuery(list);
   const query = { ...paging, name };
@@ -88,19 +95,22 @@ export default async function TeamPage({ params, searchParams }: PageProps<"/tea
                         label={t("players.shirtNumber")}
                       />
                       <SortHeader {...header} field="name" label={t("players.name")} />
+                      <th scope="col" className={headerCell}>
+                        <span className="sr-only">{t("list.actions")}</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {players.data.items.length === 0 && (
-                      <EmptyRow columns={2} message={t("list.empty")} />
+                      <EmptyRow columns={3} message={t("list.empty")} />
                     )}
                     {players.data.items.map((player) => (
-                      <tr key={player.id} className={row}>
-                        <td className={`${cell} w-20 font-mono font-semibold text-slate-500`}>
-                          {player.shirtNumber}
-                        </td>
-                        <td className={`${cell} font-medium`}>{player.name}</td>
-                      </tr>
+                      <PlayerRow
+                        key={player.id}
+                        teamId={teamId}
+                        player={player}
+                        isAdmin={isAdmin}
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -113,6 +123,31 @@ export default async function TeamPage({ params, searchParams }: PageProps<"/tea
             </div>
           )}
         </section>
+
+        {isAdmin && (
+          <aside className="space-y-4">
+            <section className={`${card} space-y-3 p-4`}>
+              <SectionTitle>{t("players.new")}</SectionTitle>
+              <AddPlayerForm teamId={teamId} idempotencyKey={newIdempotencyKey()} />
+            </section>
+
+            <section className={`${card} space-y-3 p-4`}>
+              <SectionTitle>{t("teams.edit")}</SectionTitle>
+              <EditTeamForm teamId={teamId} name={team.data.name} country={team.data.country} />
+            </section>
+
+            <section className={`${card} space-y-2 p-4`}>
+              <SectionTitle>{t("teams.delete")}</SectionTitle>
+              <p className="text-sm text-slate-600">{t("teams.deleteHint")}</p>
+              <ActionButton
+                action={deleteTeam.bind(null, teamId)}
+                label={t("teams.delete")}
+                pendingLabel={t("form.removing")}
+                confirmMessage={t("teams.deleteConfirm", { name: team.data.name })}
+              />
+            </section>
+          </aside>
+        )}
       </div>
     </div>
   );

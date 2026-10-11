@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FilterForm, TextFilter } from "@/components/filter-form";
-import { EmptyRow, PageTitle } from "@/components/page-title";
+import { CreateTeamForm } from "@/components/forms/team-forms";
+import { EmptyRow, PageTitle, SectionTitle } from "@/components/page-title";
 import { Pagination } from "@/components/pagination";
 import { ProblemAlert } from "@/components/problem-alert";
 import { SortHeader } from "@/components/sort-header";
 import { card, cell, link, row, table, tableWrapper } from "@/components/styles";
 import { getI18n } from "@/i18n/server";
 import { getTeams, teamSortFields } from "@/lib/api/queries";
+import { getSession } from "@/lib/auth/session";
+import { newIdempotencyKey } from "@/lib/idempotency";
 import { listQuery, param, parseListParams } from "@/lib/paging";
 
 const pathname = "/teams";
@@ -23,7 +26,11 @@ export default async function TeamsPage({ searchParams }: PageProps<"/teams">) {
   const name = param(search, "name");
   const country = param(search, "country");
 
-  const [{ t }, result] = await Promise.all([getI18n(), getTeams(list, { name, country })]);
+  const [{ t }, result, session] = await Promise.all([
+    getI18n(),
+    getTeams(list, { name, country }),
+    getSession(),
+  ]);
 
   const paging = listQuery(list);
   const query = { ...paging, name, country };
@@ -32,6 +39,13 @@ export default async function TeamsPage({ searchParams }: PageProps<"/teams">) {
   return (
     <div className="space-y-4">
       <PageTitle title={t("teams.title")} subtitle={t("teams.subtitle")} />
+
+      {session?.isAdmin && (
+        <section className={`${card} space-y-3 p-4`}>
+          <SectionTitle>{t("teams.new")}</SectionTitle>
+          <CreateTeamForm idempotencyKey={newIdempotencyKey()} />
+        </section>
+      )}
 
       <section className={card}>
         <FilterForm

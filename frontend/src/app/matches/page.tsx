@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FilterForm, SelectFilter, TextFilter } from "@/components/filter-form";
+import { ScheduleMatchForm } from "@/components/forms/match-forms";
 import { Score } from "@/components/match-list";
-import { EmptyRow, PageTitle } from "@/components/page-title";
+import { EmptyRow, PageTitle, SectionTitle } from "@/components/page-title";
 import { Pagination } from "@/components/pagination";
 import { ProblemAlert } from "@/components/problem-alert";
 import { SortHeader } from "@/components/sort-header";
@@ -11,7 +12,9 @@ import { card, cell, link, row, table, tableWrapper } from "@/components/styles"
 import { getI18n } from "@/i18n/server";
 import { getAllTeams, getMatches, matchSortFields } from "@/lib/api/queries";
 import { matchStatuses, type MatchStatus } from "@/lib/api/types";
+import { getSession } from "@/lib/auth/session";
 import { endOfDayIso, isDateInput, startOfDayIso } from "@/lib/dates";
+import { newIdempotencyKey } from "@/lib/idempotency";
 import { isGuid } from "@/lib/ids";
 import { listQuery, param, parseListParams } from "@/lib/paging";
 
@@ -32,7 +35,7 @@ export default async function MatchesPage({ searchParams }: PageProps<"/matches"
   const to = isDateInput(param(search, "to")) ? param(search, "to") : undefined;
 
   const { t, timeZone, formatDateTime } = await getI18n();
-  const [result, teams] = await Promise.all([
+  const [result, teams, session] = await Promise.all([
     getMatches(list, {
       teamId,
       status,
@@ -40,15 +43,24 @@ export default async function MatchesPage({ searchParams }: PageProps<"/matches"
       to: to ? (endOfDayIso(to, timeZone) ?? undefined) : undefined,
     }),
     getAllTeams(),
+    getSession(),
   ]);
 
   const paging = listQuery(list);
   const query = { ...paging, teamId, status, from, to };
   const header = { pathname, query, list, defaultField: "scheduledAt" };
+  const teamOptions = teams.ok ? teams.data.items.map(({ id, name }) => ({ id, name })) : [];
 
   return (
     <div className="space-y-4">
       <PageTitle title={t("matches.title")} subtitle={t("matches.subtitle", { timeZone })} />
+
+      {session?.isAdmin && (
+        <section className={`${card} space-y-3 p-4`}>
+          <SectionTitle>{t("matches.new")}</SectionTitle>
+          <ScheduleMatchForm teams={teamOptions} idempotencyKey={newIdempotencyKey()} />
+        </section>
+      )}
 
       <section className={card}>
         <FilterForm
@@ -65,9 +77,7 @@ export default async function MatchesPage({ searchParams }: PageProps<"/matches"
             label={t("filters.team")}
             value={teamId}
             allLabel={t("filters.allTeams")}
-            options={
-              teams.ok ? teams.data.items.map((team) => ({ value: team.id, label: team.name })) : []
-            }
+            options={teamOptions.map((team) => ({ value: team.id, label: team.name }))}
           />
           <SelectFilter
             name="status"

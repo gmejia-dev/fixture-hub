@@ -1,13 +1,25 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { annulGoal, cancelMatch, deleteMatch, finishMatch, startMatch } from "@/actions/matches";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { ActionButton } from "@/components/forms/form-parts";
+import {
+  CorrectResultForm,
+  RegisterGoalForm,
+  RescheduleMatchForm,
+  type TeamRoster,
+} from "@/components/forms/match-forms";
 import { SectionTitle } from "@/components/page-title";
 import { ProblemAlert } from "@/components/problem-alert";
 import { StatusBadge } from "@/components/status-badge";
-import { card, link } from "@/components/styles";
+import { card, link, primaryButton } from "@/components/styles";
 import { getI18n } from "@/i18n/server";
-import { getMatch } from "@/lib/api/queries";
+import { getMatch, getTeam } from "@/lib/api/queries";
+import type { MatchDetails } from "@/lib/api/types";
+import { getSession } from "@/lib/auth/session";
+import { toDateTimeInput } from "@/lib/dates";
+import { newIdempotencyKey } from "@/lib/idempotency";
 import { isGuid } from "@/lib/ids";
 
 const liveRefreshSeconds = 10;
@@ -30,7 +42,11 @@ export default async function MatchPage({ params }: PageProps<"/matches/[matchId
   const { matchId } = await params;
   if (!isGuid(matchId)) notFound();
 
-  const [{ t, formatDateTime }, result] = await Promise.all([getI18n(), getMatch(matchId)]);
+  const [{ t, formatDateTime }, result, session] = await Promise.all([
+    getI18n(),
+    getMatch(matchId),
+    getSession(),
+  ]);
 
   if (!result.ok) {
     if (result.problem.status === 404) notFound();
@@ -38,6 +54,7 @@ export default async function MatchPage({ params }: PageProps<"/matches/[matchId
   }
 
   const match = result.data;
+  const isAdmin = session?.isAdmin ?? false;
   const goals = [...match.goals].sort((a, b) => a.minute - b.minute);
   const teamName = (teamId: string) =>
     teamId === match.homeTeamId ? match.homeTeamName : match.awayTeamName;
@@ -111,6 +128,20 @@ export default async function MatchPage({ params }: PageProps<"/matches/[matchId
                         {t("goals.annulled")}
                       </span>
                     )}
+                    {isAdmin && match.status === "InProgress" && !goal.isAnnulled && (
+                      <div className="ml-auto">
+                        <ActionButton
+                          action={annulGoal.bind(null, match.id, goal.id)}
+                          label={t("goals.annul")}
+                          pendingLabel={t("form.saving")}
+                          confirmMessage={t("goals.annulConfirm", {
+                            player: goal.playerName,
+                            minute: goal.minute,
+                          })}
+                          idempotencyKey={newIdempotencyKey()}
+                        />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -134,7 +165,105 @@ export default async function MatchPage({ params }: PageProps<"/matches/[matchId
             </section>
           )}
         </div>
+
+        {isAdmin && <AdminPanel match={match} />}
       </div>
     </div>
+  );
+}
+
+async function AdminPanel({ match }: { match: MatchDetails }) {
+  const { t, timeZone } = await getI18n();
+  const needsRosters = match.status === "InProgress" || match.status === "Finished";
+  const rosters = needsRosters ? await getRosters(match) : [];
+
+  return (
+    <aside className="space-y-4">
+      <section className={`${card} space-y-4 p-4`}>
+        <SectionTitle>{t("admin.title")}</SectionTitle>
+
+        {match.status === "Scheduled" && (
+          <>
+            <ActionButton
+              action={startMatch.bind(null, match.id)}
+              label={t("matches.start")}
+              pendingLabel={t("form.saving")}
+              idempotencyKey={newIdempotencyKey()}
+              className={primaryButton}
+            />
+            <RescheduleMatchForm
+              matchId={match.id}
+              scheduledAt={toDateTimeInput(match.scheduledAt, timeZone)}
+            />
+          </>
+        )}
+
+        {match.status === "InProgress" && (
+          <>
+            <RegisterGoalForm
+              matchId={match.id}
+              teams={rosters}
+              idempotencyKey={newIdempotencyKey()}
+            />
+            <hr className="border-slate-100" />
+            <ActionButton
+              action={finishMatch.bind(null, match.id)}
+              label={t("matches.finish")}
+              pendingLabel={t("form.saving")}
+              confirmMessage={t("matches.finishConfirm")}
+              idempotencyKey={newIdempotencyKey()}
+              className={primaryButton}
+            />
+          </>
+        )}
+
+        {match.status === "Finished" && (
+          <>
+            <p className="text-sm text-slate-600">{t("correction.hint")}</p>
+            <CorrectResultForm
+              key={match.goals.map((goal) => `${goal.id}:${goal.isAnnulled}`).join("|")}
+              matchId={match.id}
+              teams={rosters}
+              goals={match.goals
+                .filter((goal) => !goal.isAnnulled)
+                .map(({ playerId, minute, isOwnGoal }) => ({ playerId, minute, isOwnGoal }))}
+            />
+          </>
+        )}
+
+        {(match.status === "Scheduled" || match.status === "InProgress") && (
+          <ActionButton
+            action={cancelMatch.bind(null, match.id)}
+            label={t("matches.cancel")}
+            pendingLabel={t("form.saving")}
+            confirmMessage={t("matches.cancelConfirm")}
+            idempotencyKey={newIdempotencyKey()}
+          />
+        )}
+
+        {(match.status === "Scheduled" || match.status === "Cancelled") && (
+          <ActionButton
+            action={deleteMatch.bind(null, match.id)}
+            label={t("matches.delete")}
+            pendingLabel={t("form.removing")}
+            confirmMessage={t("matches.deleteConfirm")}
+          />
+        )}
+      </section>
+    </aside>
+  );
+}
+
+async function getRosters(match: MatchDetails): Promise<TeamRoster[]> {
+  const sides = [
+    { id: match.homeTeamId, name: match.homeTeamName },
+    { id: match.awayTeamId, name: match.awayTeamName },
+  ];
+
+  return Promise.all(
+    sides.map(async (side) => {
+      const team = await getTeam(side.id);
+      return { ...side, players: team.ok ? team.data.players : [] };
+    }),
   );
 }

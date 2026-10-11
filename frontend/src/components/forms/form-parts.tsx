@@ -1,10 +1,12 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useActionState, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { ProblemAlert } from "@/components/problem-alert";
-import { label as labelStyle, primaryButton } from "@/components/styles";
-import type { ActionState } from "@/lib/action-state";
+import { dangerButton, label as labelStyle, primaryButton } from "@/components/styles";
+import { idleState, type ActionState } from "@/lib/action-state";
+
+export type FormAction = (state: ActionState, formData: FormData) => Promise<ActionState>;
 
 export function SubmitButton({
   children,
@@ -48,6 +50,10 @@ export function Field({
   );
 }
 
+export function IdempotencyKeyInput({ state, initial }: { state: ActionState; initial: string }) {
+  return <input type="hidden" name="idempotencyKey" value={state.idempotencyKey ?? initial} />;
+}
+
 export function FormFeedback({
   state,
   inlineFields,
@@ -70,4 +76,38 @@ export function FormFeedback({
   }
 
   return null;
+}
+
+export function ActionButton({
+  action,
+  label,
+  pendingLabel,
+  confirmMessage,
+  idempotencyKey,
+  className = dangerButton,
+}: {
+  action: FormAction;
+  label: string;
+  pendingLabel: string;
+  confirmMessage?: string;
+  idempotencyKey?: string;
+  className?: string;
+}) {
+  const [state, formAction] = useActionState(action, idleState);
+
+  return (
+    <form
+      action={formAction}
+      onSubmit={(event) => {
+        if (confirmMessage && !window.confirm(confirmMessage)) event.preventDefault();
+      }}
+      className="space-y-2"
+    >
+      {idempotencyKey && <IdempotencyKeyInput state={state} initial={idempotencyKey} />}
+      <SubmitButton pendingLabel={pendingLabel} className={className}>
+        {label}
+      </SubmitButton>
+      <FormFeedback state={state} />
+    </form>
+  );
 }
