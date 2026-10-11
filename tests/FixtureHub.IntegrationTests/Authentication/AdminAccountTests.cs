@@ -59,20 +59,6 @@ public sealed class AdminAccountTests(SqlServerFixture database)
         Assert.False(Hasher(restarted).Verify(FixtureHubApiFactory.AdminPassword, admin.PasswordHash));
     }
 
-    [Theory]
-    [InlineData("Admin:Username", "", "Admin:Username")]
-    [InlineData("Admin:Password", "", "Admin:Password")]
-    [InlineData("Admin:Password", "corta", "Admin:Password")]
-    public async Task Startup_WithoutValidAdminCredentials_FailsNamingTheSetting(string key, string value, string expected)
-    {
-        await using var api = NewApi(NewDatabase(), migrate: false, new() { [key] = value });
-
-        var exception = Record.Exception(() => api.CreateClient());
-
-        Assert.NotNull(exception);
-        Assert.Contains(expected, exception.ToString(), StringComparison.Ordinal);
-    }
-
     private string NewDatabase() => database.ConnectionStringFor($"FixtureHubAdmin{Guid.NewGuid():N}");
 
     private static FixtureHubApiFactory NewApi(

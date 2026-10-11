@@ -9,6 +9,8 @@ public class ProblemMappingTests
     [InlineData(ErrorType.Validation, 400)]
     [InlineData(ErrorType.NotFound, 404)]
     [InlineData(ErrorType.Conflict, 409)]
+    [InlineData(ErrorType.Unauthorized, 401)]
+    [InlineData(ErrorType.Forbidden, 403)]
     [InlineData(ErrorType.Failure, 500)]
     public void StatusCodeFor_EachErrorType_ReturnsItsHttpStatus(ErrorType type, int expected)
     {

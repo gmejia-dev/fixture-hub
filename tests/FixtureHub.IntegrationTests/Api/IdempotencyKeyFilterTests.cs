@@ -10,6 +10,8 @@ namespace FixtureHub.IntegrationTests.Api;
 [Collection(nameof(SqlServerCollection))]
 public sealed partial class IdempotencyKeyFilterTests(SqlServerFixture database)
 {
+    private const string LoginRoute = "/api/auth/login";
+
     private readonly HttpClient _client = database.CreateClient();
 
     [Fact]
@@ -104,6 +106,7 @@ public sealed partial class IdempotencyKeyFilterTests(SqlServerFixture database)
             .OfType<RouteEndpoint>()
             .Where(endpoint => endpoint.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods.Contains("POST") == true)
             .Select(endpoint => endpoint.RoutePattern.RawText!)
+            .Where(route => route != LoginRoute)
             .ToList();
 
         Assert.Contains("/api/teams/", routes);

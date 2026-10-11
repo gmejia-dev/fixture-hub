@@ -10,7 +10,7 @@ public class ConfigurationTests
         AllowTrailingCommas = true
     };
 
-    private static readonly string[] SecretKeys = ["Admin:Password"];
+    private static readonly string[] SecretKeys = ["Admin:Password", "Jwt:SigningKey"];
 
     [Theory]
     [InlineData("appsettings.json")]

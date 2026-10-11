@@ -37,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<IMatchReader, MatchReader>();
         services.AddScoped<IStandingsReader, StandingsReader>();
         services.AddScoped<ITopScorerReader, TopScorerReader>();
+        services.AddScoped<IUserReader, UserReader>();
 
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddOptions<AdminOptions>()

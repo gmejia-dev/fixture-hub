@@ -1,4 +1,5 @@
 using FixtureHub.Application;
+using FixtureHub.Application.Abstractions.Authentication;
 using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Abstractions.Messaging;
 using FixtureHub.Application.Abstractions.Persistence;
@@ -8,6 +9,7 @@ using FixtureHub.Domain.Teams;
 using FixtureHub.Infrastructure;
 using FixtureHub.Infrastructure.Persistence;
 using FixtureHub.IntegrationTests.Api;
+using FixtureHub.IntegrationTests.Authentication;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,6 +40,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
         services.AddLogging();
         services.AddApplication();
         services.AddInfrastructure(ConnectionString);
+        services.AddSingleton<ITokenIssuer, UnusedTokenIssuer>();
 
         _provider = services.BuildServiceProvider(new ServiceProviderOptions
         {

@@ -1,3 +1,4 @@
+using FixtureHub.Api.Authentication;
 using FixtureHub.Api.Http;
 
 namespace FixtureHub.Api;
@@ -12,6 +13,8 @@ internal static class DependencyInjection
         services.AddExceptionHandler<GlobalExceptionHandler>();
 
         services.Configure<RouteHandlerOptions>(options => options.ThrowOnBadRequest = true);
+
+        services.AddJwtAuthentication();
 
         return services;
     }

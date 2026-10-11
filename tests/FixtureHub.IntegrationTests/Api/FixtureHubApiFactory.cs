@@ -8,11 +8,13 @@ public sealed class FixtureHubApiFactory(string connectionString, IReadOnlyDicti
 {
     public const string AdminUsername = "admin";
     public const string AdminPassword = "contraseña-de-prueba";
+    public const string SigningKey = "clave-de-firma-de-los-tests-de-integracion-0123456789";
 
     private static readonly Dictionary<string, string> DefaultSettings = new()
     {
         ["Admin:Username"] = AdminUsername,
-        ["Admin:Password"] = AdminPassword
+        ["Admin:Password"] = AdminPassword,
+        ["Jwt:SigningKey"] = SigningKey
     };
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
