@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using FixtureHub.Api.Authentication;
 using Serilog;
 
 namespace FixtureHub.Api.Observability;
@@ -11,5 +13,15 @@ internal static class RequestLogging
         {
             options.Logger = app.ApplicationServices.GetRequiredService<Serilog.ILogger>();
             options.MessageTemplate = MessageTemplate;
+            options.EnrichDiagnosticContext = Enrich;
         });
+
+    private static void Enrich(IDiagnosticContext diagnostics, HttpContext context)
+    {
+        if (context.User.FindFirstValue(JwtClaims.Subject) is { } userId)
+            diagnostics.Set(LogProperties.UserId, userId);
+
+        if (context.GetEndpoint() is RouteEndpoint { RoutePattern.RawText: { } route })
+            diagnostics.Set(LogProperties.Route, route);
+    }
 }

@@ -25,6 +25,7 @@ app.UseExceptionHandler();
 app.UseStatusCodePages();
 
 app.UseAuthentication();
+app.UseMiddleware<CorrelationMiddleware>();
 app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())

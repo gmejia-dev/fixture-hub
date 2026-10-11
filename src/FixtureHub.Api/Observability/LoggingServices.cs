@@ -16,8 +16,7 @@ internal static class LoggingServices
             {
                 logger
                     .ReadFrom.Configuration(configuration)
-                    .ReadFrom.Services(provider)
-                    .Enrich.FromLogContext();
+                    .ReadFrom.Services(provider);
 
                 if (configuration.GetValue<bool>(JsonConsoleKey))
                     logger.WriteTo.Console(new RenderedCompactJsonFormatter());
