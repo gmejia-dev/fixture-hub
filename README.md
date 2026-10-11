@@ -15,8 +15,8 @@ Sistema de gestión de torneos de fútbol: equipos, jugadores, calendario de par
 | Base de datos | SQL Server |
 | Seguridad | JWT (lecturas públicas, escrituras con rol Admin) |
 | Observabilidad | Serilog, CorrelationId/TraceId, OpenTelemetry + Jaeger |
-| Frontend | Next.js |
-| Tests | xUnit, Testcontainers (SQL Server real), NetArchTest |
+| Frontend | Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4 |
+| Tests | xUnit, Testcontainers (SQL Server real), NetArchTest; Vitest en el frontend |
 | Infraestructura | Docker + docker-compose |
 
 ## Estructura del repositorio
@@ -28,6 +28,7 @@ fixture-hub/
 │   ├── FixtureHub.Application/     Casos de uso (commands/queries) y contratos
 │   ├── FixtureHub.Infrastructure/  EF Core, Dapper, SQL Server, seed, usuarios y hash de contraseñas
 │   └── FixtureHub.Api/             Endpoints HTTP, middlewares, JWT, logs y trazas, composition root
+├── frontend/                       Next.js: páginas, server actions, idiomas es/en y cliente de la Api
 ├── tests/
 │   ├── FixtureHub.UnitTests/          Dominio, handlers y decorators, con fakes
 │   ├── FixtureHub.IntegrationTests/   Persistencia, lecturas e idempotencia contra SQL Server en Docker; la Api por HTTP; logs y trazas
@@ -80,6 +81,33 @@ Para usar otro SQL Server, sobrescribe la cadena de conexión con una variable d
 ConnectionStrings__FixtureHub="Server=localhost,1433;Database=FixtureHub;User Id=sa;Password=<tu-clave>;TrustServerCertificate=True" dotnet run --project src/FixtureHub.Api --launch-profile http
 ```
 
+### Frontend
+
+Con la Api corriendo, en otra terminal (Node.js 24):
+
+```bash
+cd frontend
+```
+
+```bash
+npm ci
+```
+
+```bash
+npm run dev
+```
+
+Queda en `http://localhost:3000`. Las consultas son públicas; para administrar el torneo (equipos, jugadores, partidos y goles en vivo) se inicia sesión con el usuario y la contraseña de `Admin` configurados arriba. El selector **ES / EN** cambia el idioma.
+
+El navegador nunca llama a la Api: las páginas y los formularios corren en el servidor de Next.js, que la llama en `http://localhost:5065`. Para cambiar la dirección o la zona horaria del torneo, copia [`frontend/.env.example`](frontend/.env.example) como `frontend/.env.local`:
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `API_BASE_URL` | `http://localhost:5065` | Dirección de la Api, leída al ejecutarse (en Docker será `http://api:8080`) |
+| `TOURNAMENT_TIME_ZONE` | `America/El_Salvador` | Zona en la que se muestran y se capturan las fechas |
+
+Para una versión de producción: `npm run build` y `npm start`.
+
 ### Logs y trazas
 
 Los logs salen por consola con [Serilog](https://serilog.net/): en Development como texto, y en cualquier otro entorno como JSON, una línea por evento (`Observability__JsonConsole=true` lo activa también en desarrollo). Cada request deja un log con método, ruta, status y duración, y cada log lleva el TraceId del request.
@@ -121,8 +149,19 @@ dotnet test tests/FixtureHub.UnitTests
 dotnet test tests/FixtureHub.ArchitectureTests
 ```
 
+Los tests de arquitectura incluyen `FrontendCatalogTests`: por reflexión, cada código de error de la Api debe tener su traducción en los catálogos del frontend (`frontend/src/i18n/messages/es.json` y `en.json`).
+
+En el frontend (desde `frontend/`):
+
+| Comando | Qué hace |
+|---|---|
+| `npm test` | Tests unitarios con Vitest: traducción, catálogos, errores de la Api, idioma, fechas, paginación, redirecciones y token |
+| `npm run lint` | ESLint con las reglas de Next.js y de React |
+| `npm run typecheck` | TypeScript estricto, con los tipos de las rutas que genera Next.js |
+| `npm run format:check` | Prettier |
+
 ## Documentación
 
-- [Arquitectura](docs/arquitectura.md): capas, regla de dependencias, flujo de un request y observabilidad.
+- [Arquitectura](docs/arquitectura.md): capas, regla de dependencias, flujo de un request, observabilidad y frontend.
 - [Decisiones de diseño](docs/decisiones.md): qué se decidió y por qué.
 - [Guía de contribución](CONTRIBUTING.md): convención de commits, ramas y pull requests.

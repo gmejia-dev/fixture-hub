@@ -1,6 +1,6 @@
 # Arquitectura
 
-FixtureHub sigue **Clean Architecture**: el código se organiza en capas concéntricas y las dependencias de código **siempre apuntan hacia adentro**, hacia las reglas de negocio. El dominio no conoce la base de datos, el framework web ni ninguna librería de infraestructura.
+El backend de FixtureHub sigue **Clean Architecture**: el código se organiza en capas concéntricas y las dependencias de código **siempre apuntan hacia adentro**, hacia las reglas de negocio. El dominio no conoce la base de datos, el framework web ni ninguna librería de infraestructura.
 
 ```
 ┌─────────────────────────────────────────┐
@@ -331,6 +331,73 @@ POST /api/teams/                      span del servidor (ASP.NET Core)
 - Si Jaeger no responde, el exportador descarta en segundo plano: la Api no se entera ni se frena.
 - El servicio se llama `fixturehub-api`. El arranque (migraciones, administrador y seed) no deja trazas: corre antes de `app.Run()`, y OpenTelemetry empieza a escuchar cuando arranca el host. Sí deja logs.
 
+## Frontend
+
+Next.js 16 con App Router. El servidor de Next.js es el único cliente de la Api: el navegador habla con Next.js y Next.js habla con la Api.
+
+```
+Navegador ──HTML / RSC──▶ Next.js (servidor) ──HTTP + JSON──▶ Api ──▶ SQL Server
+          ◀── formularios (Server Actions, POST) ─┘     ▲
+                cookie HttpOnly con el JWT              └ Authorization: Bearer, Idempotency-Key
+```
+
+- **Lecturas:** cada página es un *Server Component* que lee los parámetros de la URL, llama a la Api y devuelve HTML ya armado.
+- **Escrituras:** los formularios llaman a *Server Actions* (funciones `"use server"`), que agregan el token y la clave de idempotencia y llaman a la Api.
+- **Consecuencias:** no hace falta CORS; el JWT nunca llega a JavaScript del navegador; la dirección de la Api (`API_BASE_URL`) se lee al ejecutarse, así que la misma imagen sirve para cualquier entorno.
+
+| Carpeta | Qué contiene |
+|---|---|
+| `src/app/` | Rutas: cada carpeta es un segmento de la URL y su `page.tsx` es la página (`/standings`, `/teams/[teamId]`, …). `layout.tsx` es el marco común; `not-found.tsx` y `error.tsx` son las páginas de error |
+| `src/actions/` | Server Actions: `auth.ts` (login y logout), `teams.ts`, `matches.ts`, `locale.ts`; `support.ts` traduce la respuesta de la Api al estado del formulario |
+| `src/components/` | Componentes de la interfaz. Los de `forms/` son *Client Components* (`"use client"`): manejan el estado del formulario |
+| `src/lib/api/` | Cliente HTTP (solo servidor), tipos de la Api, lecturas tipadas y conversión de ProblemDetails |
+| `src/lib/auth/` | Sesión: la cookie con el JWT y la lectura de sus datos para la interfaz |
+| `src/i18n/` | Idiomas: catálogos `es.json` (fuente de verdad) y `en.json`, traducción y negociación del idioma |
+
+### Una lectura: `GET /standings?sortBy=points&sortDirection=desc`
+
+```
+Navegador → Next.js
+ → app/standings/page.tsx (Server Component)
+     parseListParams: página, tamaño (10, 25, 50) y orden en lista blanca; lo inválido vuelve al valor por defecto
+     getStandings → apiGet → fetch GET {API_BASE_URL}/api/standings?… (sin caché)
+ ← ApiResult: { ok: true, data } → tabla, encabezados ordenables y paginación (todo son enlaces con la URL nueva)
+              { ok: false, problem } → ProblemAlert: mensaje traducido + código de seguimiento (traceId)
+```
+
+Los filtros, el orden y la página viven en la URL: se pueden compartir, el botón Atrás funciona y el formulario de filtros es un `GET` normal (`next/form`) que no necesita JavaScript.
+
+### Una escritura: registrar un gol
+
+```
+Navegador: RegisterGoalForm (Client Component, useActionState)
+   hidden idempotencyKey = la que generó el servidor al renderizar la página
+ → POST a la misma página (Server Action registerGoal; Next compara Origin con Host)
+ → actions/matches.ts: valida que matchId sea un Guid, lee el formulario
+ → apiWrite: token de la cookie HttpOnly (sin token → 401 sin llamar a la Api)
+     POST /api/matches/{id}/goals  Authorization: Bearer …  Idempotency-Key: …
+ → settle:
+     éxito → refresh(): la misma respuesta trae la página con el marcador nuevo; la clave se renueva
+     401   → borra la cookie y redirige a /login?expired=1&returnTo=<página actual>
+     otro  → devuelve { problem, values, idempotencyKey } al formulario: errores por campo, datos conservados, misma clave
+```
+
+| Tema | Cómo |
+|---|---|
+| Sesión | El JWT del login va a una cookie `HttpOnly`, `Secure`, `SameSite=Lax`, que vence cuando vence el token. El servidor lee del token solo `name`, `role` y `exp` para mostrar la interfaz de Admin; **la firma la valida la Api** en cada escritura |
+| Idempotencia | La clave nace con el formulario y se reutiliza en cada reintento hasta que la operación sale bien (la Api solo guarda las respuestas exitosas). Dos envíos seguidos del mismo formulario producen un solo gol: el segundo recibe la respuesta guardada |
+| Errores | La Api devuelve códigos; el frontend los traduce con `error.{errorCode}` y los valores de `metadata`. Un código sin traducción muestra un mensaje genérico, nunca la clave. Si la Api no responde: `Network.Unavailable` |
+| Idiomas | Cookie elegida con el selector → `Accept-Language` del navegador → español. `<html lang>` cambia con el idioma |
+| Fechas | Se muestran y se capturan en la zona del torneo (`TOURNAMENT_TIME_ZONE`); a la Api viajan en UTC |
+| En vivo | Mientras hay partidos en curso, la página se vuelve a pedir al servidor cada 10 s (15 s en el inicio) con `router.refresh()`; se pausa si la pestaña está oculta |
+| Errores inesperados | `error.tsx` muestra un mensaje y el `digest` para buscar el error en los logs del servidor; `not-found.tsx` responde con un 404 real |
+
+### Qué se prueba en el frontend
+
+- **Vitest** (`npm test`): traducción e interpolación, catálogos (mismas claves y mismos marcadores en los dos idiomas), conversión de ProblemDetails, mensajes de error con estados y fechas, negociación del idioma, fechas con zona horaria (incluido un cambio de horario de verano), paginación y orden, redirecciones seguras después del login, lectura del token e `isGuid`.
+- **TypeScript estricto:** `t("clave")` solo acepta claves que existen en `es.json`, y `en.json` debe tener todas las claves de `es.json`.
+- **.NET** (`FrontendCatalogTests`, en los tests de arquitectura): cada código de error de Domain, Application, Infrastructure y Api tiene traducción en los dos catálogos, cada estado del partido también, los marcadores de un mensaje existen en la `metadata` de su error, y los errores constantes (los que llegan por campo, sin `metadata`) escriben sus límites en el texto y coinciden con los del dominio.
+
 ## Base de datos al iniciar
 
 `InitializeDatabaseAsync` aplica las migraciones (`Database:ApplyMigrations`), asegura el usuario administrador (siempre) y carga el seed (`Database:Seed`). Las dos opciones están apagadas en `appsettings.json` y encendidas en Development.
@@ -399,6 +466,7 @@ Las reglas de dependencia se verifican con tests de arquitectura (`tests/Fixture
 | `AppSettingsFile_IsValidJson` | Los `appsettings*.json` de la Api se pueden leer; los tests de integración corren en otro entorno y no cargan `appsettings.Development.json` |
 | `AppSettingsFile_DoesNotContainSecrets` | Ni `Admin:Password` ni `Jwt:SigningKey` aparecen en los `appsettings*.json` |
 | `HttpFile_DoesNotContainTheAdminPassword` | `FixtureHub.Api.http` no se sube con la contraseña escrita |
+| `FrontendCatalogTests` | Cada código de error y cada estado del partido tiene traducción en `es.json` y `en.json`; los marcadores de cada mensaje existen en la `metadata` de su error; los errores constantes escriben sus límites |
 
 Cada regla que filtra tipos verifica primero que el filtro seleccione los tipos esperados (**anti-vacío**). Sin esa comprobación, un filtro mal escrito no selecciona nada y la regla pasa sin revisar ningún tipo.
 
