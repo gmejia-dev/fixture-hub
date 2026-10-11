@@ -1,8 +1,11 @@
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using FixtureHub.Application;
 using FixtureHub.Application.Abstractions.Authentication;
 using FixtureHub.Application.Abstractions.Idempotency;
 using FixtureHub.Application.Abstractions.Messaging;
 using FixtureHub.Application.Abstractions.Persistence;
+using FixtureHub.Application.Authentication.Login;
 using FixtureHub.Domain.Common;
 using FixtureHub.Domain.Matches;
 using FixtureHub.Domain.Teams;
@@ -24,6 +27,7 @@ public sealed class SqlServerFixture : IAsyncLifetime
 
     private ServiceProvider? _provider;
     private FixtureHubApiFactory? _api;
+    private string? _adminToken;
 
     public string ConnectionString { get; private set; } = string.Empty;
 
@@ -48,8 +52,12 @@ public sealed class SqlServerFixture : IAsyncLifetime
             ValidateScopes = true
         });
 
-        await using var scope = CreateScope();
-        await scope.ServiceProvider.GetRequiredService<FixtureHubDbContext>().Database.MigrateAsync();
+        await using (var scope = CreateScope())
+            await scope.ServiceProvider.GetRequiredService<FixtureHubDbContext>().Database.MigrateAsync();
+
+        using var client = CreateAnonymousClient();
+        var login = await client.LoginAsync(FixtureHubApiFactory.AdminUsername, FixtureHubApiFactory.AdminPassword);
+        _adminToken = (await login.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<AuthToken>())!.AccessToken;
     }
 
     public IServiceProvider ApiServices => Api.Services;
@@ -59,7 +67,17 @@ public sealed class SqlServerFixture : IAsyncLifetime
 
     private FixtureHubApiFactory Api => _api ??= new FixtureHubApiFactory(ConnectionString);
 
-    public HttpClient CreateClient() => Api.CreateClient();
+    public HttpClient CreateClient() => CreateClient(_adminToken ?? throw new InvalidOperationException("La Api no se inició."));
+
+    public HttpClient CreateClient(string accessToken)
+    {
+        var client = Api.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(AuthToken.BearerType, accessToken);
+
+        return client;
+    }
+
+    public HttpClient CreateAnonymousClient() => Api.CreateClient();
 
     public AsyncServiceScope CreateScope() =>
         (_provider ?? throw new InvalidOperationException("La base de datos no se inició.")).CreateAsyncScope();

@@ -1,5 +1,7 @@
 using System.Text;
 using FixtureHub.Application.Abstractions.Authentication;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Options;
 
 namespace FixtureHub.Api.Authentication;
 
@@ -21,6 +23,16 @@ internal static class AuthenticationServices
             .ValidateOnStart();
 
         services.AddSingleton<ITokenIssuer, JwtTokenIssuer>();
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+            .Configure<IOptions<JwtOptions>>((bearer, jwt) =>
+            {
+                bearer.MapInboundClaims = false;
+                bearer.TokenValidationParameters = jwt.Value.ValidationParameters();
+            });
+
+        services.AddAuthorization();
 
         return services;
     }

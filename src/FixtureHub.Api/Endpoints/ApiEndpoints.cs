@@ -1,3 +1,4 @@
+using FixtureHub.Api.Authentication;
 using FixtureHub.Api.Endpoints.Auth;
 using FixtureHub.Api.Endpoints.Matches;
 using FixtureHub.Api.Endpoints.Standings;
@@ -13,7 +14,9 @@ internal static class ApiEndpoints
     {
         app.MapGroup("/api").MapAuthEndpoints();
 
-        var api = app.MapGroup("/api").AddEndpointFilter<IdempotencyKeyFilter>();
+        var api = app.MapGroup("/api")
+            .RequireAdminForWrites()
+            .AddEndpointFilter<IdempotencyKeyFilter>();
 
         api.MapTeamEndpoints();
         api.MapMatchEndpoints();
