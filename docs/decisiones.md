@@ -83,10 +83,28 @@ Scheduled ──start──▶ InProgress ──finish──▶ Finished
 
 ## Seguridad
 
-- **JWT** con rol `Admin`.
-- Las **lecturas son públicas**: el público consulta resultados, calendario y tabla sin crear cuentas.
-- Las **escrituras** (POST, PUT, PATCH, DELETE) requieren el rol `Admin`.
-- El usuario administrador se crea en el seed; sus credenciales vienen de variables de entorno y la contraseña se guarda con hash.
+| Decisión | Motivo |
+|---|---|
+| **Lecturas públicas, escrituras con el rol `Admin`** | El público consulta resultados, calendario y tabla sin crear cuentas; solo el organizador modifica el torneo. |
+| **JWT firmado con HS256** (clave simétrica) | Un solo servicio emite y valida los tokens. RS256 (clave privada para firmar, pública para validar) conviene cuando otros servicios validan sin poder emitir. |
+| **La protección es una convención del grupo `/api`** (`RequireAdminForWrites`) | Igual que el filtro de idempotencia: todo endpoint que no sea solo `GET` exige `Admin`, y un endpoint nuevo no puede olvidarlo. Dos tests recorren todos los endpoints registrados: cada escritura sin token da 401 y cada lectura es pública. |
+| **El login es una query** | No cambia estado: lee el usuario, verifica el hash y firma un token. Por eso no abre transacción ni exige `Idempotency-Key` (repetirlo no duplica nada). |
+| **El emisor del token vive en la Api**, junto a la validación | Las mismas `JwtOptions` firman y construyen los `TokenValidationParameters`: emisor, audiencia, clave y algoritmo no pueden quedar desalineados. Application solo conoce `ITokenIssuer`. |
+| **Un usuario administrador en la tabla `Users`**, creado al iniciar desde la configuración | Las credenciales vienen de variables de entorno (o user-secrets en desarrollo); la base guarda solo el hash. Si la contraseña configurada cambia, al reiniciar se actualiza el hash: la configuración es la fuente de verdad. No depende del seed de ejemplo, así que también existe en una base sin datos de demo. |
+| **PBKDF2-HMAC-SHA256 con 600.000 iteraciones** y sal aleatoria de 16 bytes | Es la configuración que recomienda OWASP para PBKDF2 y viene en .NET sin paquetes (`Rfc2898DeriveBytes.Pbkdf2`). El hash guarda el algoritmo y las iteraciones, así que se pueden subir sin invalidar los existentes. La comparación es en tiempo constante (`CryptographicOperations.FixedTimeEquals`). |
+| **El login no revela si el usuario existe** | Usuario inexistente y contraseña incorrecta devuelven el mismo 401 `Auth.InvalidCredentials`, y en los dos casos se calcula un PBKDF2 para que el tiempo de respuesta sea parecido. |
+| **401 y 403 con `errorCode`** (`Auth.Unauthenticated`, `Auth.Forbidden`) | Como todo error de la API: el frontend traduce por código. El middleware de autenticación no escribe cuerpo; `UseStatusCodePages` lo convierte en ProblemDetails y el enriquecedor le agrega el código. |
+| **La Api no arranca sin configuración válida** | Sin `Admin:Username`, con una contraseña de menos de 12 caracteres o con una clave de firma de menos de 32 bytes, el arranque falla con un mensaje que nombra el ajuste (`ValidateOnStart`). Es mejor que descubrirlo en el primer login. |
+| **Secretos fuera del repositorio** | user-secrets en desarrollo y variables de entorno en Docker (Compose las toma de un `.env` que está en `.gitignore`; `.env.example` lista las variables). La Api no lee el `.env` directamente: lee variables de entorno, como cualquier aplicación .NET. Un test impide que `Admin:Password` o `Jwt:SigningKey` aparezcan en los `appsettings*.json`. |
+| **Claves de idempotencia por usuario** | Se guardan como `{usuario}:{clave}`: dos usuarios con la misma clave no chocan y nadie recibe la respuesta guardada de otro. |
+| **Token de 60 minutos, sin refresh token** | Alcance de la prueba: el administrador vuelve a iniciar sesión. |
+
+Límites conocidos:
+
+- **Un JWT no se puede revocar antes de que venza.** Cerrar sesión es descartar el token en el cliente. Para revocar haría falta una lista de `jti` revocados o tokens cortos con refresh token.
+- **Sin límite de intentos en el login.** PBKDF2 hace caro cada intento, pero no frena un ataque de fuerza bruta. El paso siguiente es un rate limiter por IP en `/api/auth/login` (`AddRateLimiter`, nativo de ASP.NET Core).
+- **No hay gestión de usuarios.** Si se cambia `Admin:Username`, se crea otro administrador y el anterior sigue activo hasta borrarlo a mano.
+- **Dos instancias arrancando a la vez sobre una base sin administrador:** las dos intentan crearlo y la segunda falla por el nombre único (como el seed). Al reiniciarla, el administrador ya existe y arranca normal.
 
 ## Eventos de dominio
 
@@ -110,3 +128,4 @@ Límite conocido: si dos instancias de la Api arrancan a la vez sobre una base v
 
 - **Varios torneos:** entidad `Tournament` con inscripción de equipos (un equipo una sola vez por torneo). La tabla y los goleadores pasarían a calcularse por torneo.
 - **Jugadores en varios equipos** (por ejemplo, selección y club): relación N:M mediante `TeamMembership`, con el dorsal por membresía.
+- **Usuarios y roles:** endpoints para administrar usuarios, más roles (por ejemplo, un árbitro que solo registra goles de su partido), refresh tokens y rate limiting en el login.

@@ -52,6 +52,18 @@ public class ConfigurationTests
             secret => Assert.DoesNotContain(keys, key => string.Equals(key, secret, StringComparison.OrdinalIgnoreCase)));
     }
 
+    [Fact]
+    public void HttpFile_DoesNotContainTheAdminPassword()
+    {
+        var lines = File.ReadAllLines(Repository.File("src/FixtureHub.Api/FixtureHub.Api.http"));
+
+        var password = Assert.Single(lines, line => line.StartsWith("@adminPassword", StringComparison.Ordinal));
+
+        Assert.True(
+            string.IsNullOrWhiteSpace(password.Split('=', 2)[1]),
+            "FixtureHub.Api.http tiene la contraseña del administrador: déjala vacía antes de hacer commit.");
+    }
+
     private static IEnumerable<string> Keys(JsonElement element, string? prefix) =>
         element.ValueKind == JsonValueKind.Object
             ? element.EnumerateObject().SelectMany(property =>

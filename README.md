@@ -26,13 +26,14 @@ fixture-hub/
 ├── src/
 │   ├── FixtureHub.Domain/          Reglas del torneo: entidades, estados, eventos, Result
 │   ├── FixtureHub.Application/     Casos de uso (commands/queries) y contratos
-│   ├── FixtureHub.Infrastructure/  EF Core, Dapper, SQL Server, seed, JWT
-│   └── FixtureHub.Api/             Endpoints HTTP, middlewares, composition root
+│   ├── FixtureHub.Infrastructure/  EF Core, Dapper, SQL Server, seed, usuarios y hash de contraseñas
+│   └── FixtureHub.Api/             Endpoints HTTP, middlewares, JWT, composition root
 ├── tests/
 │   ├── FixtureHub.UnitTests/          Dominio, handlers y decorators, con fakes
 │   ├── FixtureHub.IntegrationTests/   Persistencia, lecturas e idempotencia contra SQL Server en Docker; la Api por HTTP
 │   └── FixtureHub.ArchitectureTests/  Reglas de dependencia, visibilidad y convenciones
 ├── docs/                           Arquitectura y decisiones de diseño
+├── .env.example                    Variables de entorno con secretos (copiar como .env)
 ├── dotnet-tools.json               Herramientas locales (dotnet-ef)
 ├── Directory.Build.props           Configuración común (C# 14, nullable, warnings como errores)
 ├── global.json                     Versión fija del SDK de .NET
@@ -41,13 +42,37 @@ fixture-hub/
 
 ## Cómo levantarlo
 
-La forma definitiva será `docker compose up` ([#6](https://github.com/gmejia-dev/fixture-hub/issues/6)). Mientras tanto, en Windows con SQL Server LocalDB (viene con Visual Studio):
+La forma definitiva será `docker compose up` ([#6](https://github.com/gmejia-dev/fixture-hub/issues/6)). Mientras tanto, en Windows con SQL Server LocalDB (viene con Visual Studio).
+
+**La primera vez**, configura el administrador y la clave con la que se firman los JWT. Se guardan con [user-secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets), fuera del repositorio:
+
+```bash
+dotnet user-secrets set "Admin:Username" "admin" --project src/FixtureHub.Api
+```
+
+```bash
+dotnet user-secrets set "Admin:Password" "<al menos 12 caracteres>" --project src/FixtureHub.Api
+```
+
+```bash
+dotnet user-secrets set "Jwt:SigningKey" "<al menos 32 caracteres aleatorios>" --project src/FixtureHub.Api
+```
+
+Para generar una clave aleatoria en PowerShell:
+
+```powershell
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+Después:
 
 ```bash
 dotnet run --project src/FixtureHub.Api --launch-profile http
 ```
 
-En Development, la Api aplica las migraciones y carga un torneo de ejemplo (6 equipos, 42 jugadores y 15 partidos, uno en curso) si la base está vacía. Queda en `http://localhost:5065`; el documento OpenAPI está en `/openapi/v1.json` y [`FixtureHub.Api.http`](src/FixtureHub.Api/FixtureHub.Api.http) tiene un ejemplo de cada endpoint.
+En Development, la Api aplica las migraciones, crea el administrador y carga un torneo de ejemplo (6 equipos, 42 jugadores y 15 partidos, uno en curso) si la base está vacía. Queda en `http://localhost:5065`; el documento OpenAPI está en `/openapi/v1.json` y [`FixtureHub.Api.http`](src/FixtureHub.Api/FixtureHub.Api.http) tiene un ejemplo de cada endpoint, empezando por el login. Si falta un ajuste, la Api no arranca y el mensaje dice cuál.
+
+Fuera de Development, los mismos valores llegan como variables de entorno: `Admin__Username`, `Admin__Password` y `Jwt__SigningKey` (ver [`.env.example`](.env.example)).
 
 Para usar otro SQL Server, sobrescribe la cadena de conexión con una variable de entorno:
 
@@ -61,6 +86,7 @@ ConnectionStrings__FixtureHub="Server=localhost,1433;Database=FixtureHub;User Id
 |---|---|
 | Lecturas | `GET /api/teams`, `/api/teams/{id}`, `/api/teams/{id}/players`, `/api/matches`, `/api/matches/{id}`, `/api/standings`, `/api/top-scorers`, con `pageNumber`, `pageSize` (máx. 100), `sortBy`, `sortDirection` y filtros |
 | Escrituras | POST, PUT, PATCH y DELETE sobre equipos, jugadores, partidos y goles |
+| Autenticación | `POST /api/auth/login` devuelve un JWT (60 minutos). Las lecturas son públicas; las escrituras exigen `Authorization: Bearer <token>` con el rol Admin (401 sin token válido, 403 sin el rol) |
 | Idempotencia | Todo POST exige el header `Idempotency-Key`; repetir la misma petición devuelve la respuesta original con `Idempotent-Replayed: true` |
 | Errores | ProblemDetails (RFC 9457) con `errorCode`, `metadata` y `traceId` |
 

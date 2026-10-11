@@ -1,6 +1,9 @@
 @host = http://localhost:5065
+@adminUsername = admin
+# La contraseña que configuraste con user-secrets. Escríbela solo en tu copia local: no la subas al repositorio.
+@adminPassword =
 
-### Tabla de posiciones
+### Tabla de posiciones (las lecturas son públicas: no necesitan token)
 GET {{host}}/api/standings
 Accept: application/json
 
@@ -16,9 +19,20 @@ GET {{host}}/api/matches?status=InProgress
 ### Partidos de un rango de fechas (ISO 8601; el "+" de un offset va como %2B)
 GET {{host}}/api/matches?from=2026-10-01T00:00:00Z&to=2026-10-31T23:59:59Z&sortBy=scheduledAt&sortDirection=desc
 
+### Login del administrador: devuelve el JWT que usan todas las escrituras de este archivo
+# @name login
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "{{adminUsername}}",
+  "password": "{{adminPassword}}"
+}
+
 ### Crear un equipo (repetir con la misma clave devuelve la misma respuesta)
 # @name createTeam
 POST {{host}}/api/teams
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 Idempotency-Key: crear-equipo-demo-1
 
@@ -33,6 +47,7 @@ GET {{host}}/api/teams/{{createTeam.response.body.$.id}}
 ### Agregar un jugador
 # @name addPlayer
 POST {{host}}/api/teams/{{createTeam.response.body.$.id}}/players
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 Idempotency-Key: {{$guid}}
 
@@ -43,6 +58,7 @@ Idempotency-Key: {{$guid}}
 
 ### Cambiar nombre y dorsal del jugador
 PUT {{host}}/api/teams/{{createTeam.response.body.$.id}}/players/{{addPlayer.response.body.$.id}}
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -56,6 +72,7 @@ GET {{host}}/api/teams/{{createTeam.response.body.$.id}}/players?sortBy=name
 ### Crear el rival
 # @name createRival
 POST {{host}}/api/teams
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 Idempotency-Key: {{$guid}}
 
@@ -67,6 +84,7 @@ Idempotency-Key: {{$guid}}
 ### Programar un partido
 # @name scheduleMatch
 POST {{host}}/api/matches
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 Idempotency-Key: {{$guid}}
 
@@ -78,6 +96,7 @@ Idempotency-Key: {{$guid}}
 
 ### Reprogramarlo
 PATCH {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -86,11 +105,13 @@ Content-Type: application/json
 
 ### Iniciarlo
 POST {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/start
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Idempotency-Key: {{$guid}}
 
 ### Registrar un gol (reintentar con la MISMA clave no lo duplica)
 # @name registerGoal
 POST {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/goals
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 Idempotency-Key: gol-demo-1
 
@@ -102,14 +123,17 @@ Idempotency-Key: gol-demo-1
 
 ### Anular el gol
 POST {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/goals/{{registerGoal.response.body.$.id}}/annul
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Idempotency-Key: {{$guid}}
 
 ### Finalizarlo (actualiza la tabla)
 POST {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/finish
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Idempotency-Key: {{$guid}}
 
 ### Corregir el resultado con la lista completa de goles
 PUT {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}/result
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -124,6 +148,7 @@ GET {{host}}/api/matches/{{scheduleMatch.response.body.$.id}}
 
 ### Errores: POST sin Idempotency-Key -> 400 Idempotency.KeyRequired
 POST {{host}}/api/teams
+Authorization: Bearer {{login.response.body.$.accessToken}}
 Content-Type: application/json
 
 {
@@ -137,3 +162,15 @@ GET {{host}}/api/teams?sortBy=Name%3B%20DROP%20TABLE%20Teams--
 ### Errores: el traceId del ProblemDetails es el del header traceparent
 GET {{host}}/api/teams/00000000-0000-0000-0000-000000000001
 traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+
+### Errores: escritura sin token -> 401 Auth.Unauthenticated (con el header WWW-Authenticate: Bearer)
+DELETE {{host}}/api/teams/00000000-0000-0000-0000-000000000001
+
+### Errores: login con una contraseña incorrecta -> 401 Auth.InvalidCredentials (igual que un usuario inexistente)
+POST {{host}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "{{adminUsername}}",
+  "password": "no-es-la-contraseña"
+}
