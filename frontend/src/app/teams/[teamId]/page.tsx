@@ -101,10 +101,10 @@ export default async function TeamPage({ params, searchParams }: PageProps<"/tea
                     </tr>
                   </thead>
                   <tbody>
-                    {players.data.items.length === 0 && (
+                    {players.data.data.length === 0 && (
                       <EmptyRow columns={3} message={t("list.empty")} />
                     )}
-                    {players.data.items.map((player) => (
+                    {players.data.data.map((player) => (
                       <PlayerRow
                         key={player.id}
                         teamId={teamId}

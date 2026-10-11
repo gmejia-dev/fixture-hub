@@ -54,7 +54,7 @@ export default async function TopScorersPage({ searchParams }: PageProps<"/top-s
             value={teamId}
             allLabel={t("filters.allTeams")}
             options={
-              teams.ok ? teams.data.items.map((team) => ({ value: team.id, label: team.name })) : []
+              teams.ok ? teams.data.data.map((team) => ({ value: team.id, label: team.name })) : []
             }
           />
           <TextFilter name="playerName" label={t("filters.player")} value={playerName} />
@@ -84,10 +84,10 @@ export default async function TopScorersPage({ searchParams }: PageProps<"/top-s
                   </tr>
                 </thead>
                 <tbody>
-                  {result.data.items.length === 0 && (
+                  {result.data.data.length === 0 && (
                     <EmptyRow columns={4} message={t("list.empty")} />
                   )}
-                  {result.data.items.map((scorer) => (
+                  {result.data.data.map((scorer) => (
                     <tr key={scorer.playerId} className={row}>
                       <td className={`${cell} font-semibold text-slate-500`}>{scorer.position}</td>
                       <td className={`${cell} font-medium`}>{scorer.playerName}</td>

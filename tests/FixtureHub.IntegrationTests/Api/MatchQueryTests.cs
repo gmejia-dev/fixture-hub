@@ -35,8 +35,8 @@ public sealed class MatchQueryTests(SqlServerFixture database)
 
         var page = await GetMatchesAsync($"teamId={teamId}");
 
-        Assert.Equal([sooner, later], page.Items.Select(match => match.Id));
-        Assert.Equal(teamId, page.Items[1].AwayTeamId);
+        Assert.Equal([sooner, later], page.Data.Select(match => match.Id));
+        Assert.Equal(teamId, page.Data[1].AwayTeamId);
     }
 
     [Fact]
@@ -51,7 +51,7 @@ public sealed class MatchQueryTests(SqlServerFixture database)
 
         var page = await GetMatchesAsync($"teamId={teamId}&status=finished");
 
-        var match = Assert.Single(page.Items);
+        var match = Assert.Single(page.Data);
         Assert.Equal((finished, "Finished"), (match.Id, match.Status));
     }
 
@@ -69,7 +69,7 @@ public sealed class MatchQueryTests(SqlServerFixture database)
         var to = Uri.EscapeDataString(ApiScenarios.KickOff.AddDays(1).ToUniversalTime().ToString("O"));
         var page = await GetMatchesAsync($"teamId={teamId}&from={from}&to={to}");
 
-        Assert.Equal([first, second], page.Items.Select(match => match.Id));
+        Assert.Equal([first, second], page.Data.Select(match => match.Id));
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public sealed class MatchQueryTests(SqlServerFixture database)
         var page = await GetMatchesAsync($"teamId={match.HomeTeamId}");
 
         Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
-        Assert.StartsWith("Los Halcones", Assert.Single(page.Items).HomeTeamName, StringComparison.Ordinal);
+        Assert.StartsWith("Los Halcones", Assert.Single(page.Data).HomeTeamName, StringComparison.Ordinal);
     }
 
     [Fact]

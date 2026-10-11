@@ -42,9 +42,9 @@ public sealed class StandingsQueryTests(SqlServerFixture database)
 
         Assert.Equal(
             ["Delta", "Alfa", "Beta", "Eta", "Zeta", "Epsilon", "Gamma"],
-            table.Items.Select(row => row.TeamName[(prefix.Length + 1)..]));
-        Assert.Equal(table.Items.Select(row => row.Position).Order(), table.Items.Select(row => row.Position));
-        var leader = table.Items[0];
+            table.Data.Select(row => row.TeamName[(prefix.Length + 1)..]));
+        Assert.Equal(table.Data.Select(row => row.Position).Order(), table.Data.Select(row => row.Position));
+        var leader = table.Data[0];
         Assert.Equal(
             (1, 1, 0, 0, 3, 1, 2, 3),
             (leader.Played, leader.Won, leader.Drawn, leader.Lost, leader.GoalsFor, leader.GoalsAgainst, leader.GoalDifference, leader.Points));
@@ -61,8 +61,8 @@ public sealed class StandingsQueryTests(SqlServerFixture database)
         var both = await GetStandingsAsync($"teamName={Uri.EscapeDataString(prefix)}");
         var onlyTheLoser = await GetStandingsAsync($"teamName={Uri.EscapeDataString($"{prefix} Perdedor")}");
 
-        var position = Assert.Single(onlyTheLoser.Items).Position;
-        Assert.Equal(both.Items.Single(row => row.TeamId == loser.TeamId).Position, position);
+        var position = Assert.Single(onlyTheLoser.Data).Position;
+        Assert.Equal(both.Data.Single(row => row.TeamId == loser.TeamId).Position, position);
         Assert.True(position > 1, "Filtrar no debe renumerar la tabla.");
     }
 
@@ -76,7 +76,7 @@ public sealed class StandingsQueryTests(SqlServerFixture database)
 
         var table = await GetStandingsAsync($"teamName={Uri.EscapeDataString(prefix)}");
 
-        Assert.Equal([kept.TeamId], table.Items.Select(row => row.TeamId));
+        Assert.Equal([kept.TeamId], table.Data.Select(row => row.TeamId));
     }
 
     [Fact]
@@ -94,8 +94,8 @@ public sealed class StandingsQueryTests(SqlServerFixture database)
             new { goals = new[] { new { playerId = away.PlayerId, minute = 10, isOwnGoal = false } }, reason = "Gol mal asignado." });
 
         var table = await GetStandingsAsync($"teamName={Uri.EscapeDataString(prefix)}");
-        Assert.Equal(["Visitante", "Local"], table.Items.Select(row => row.TeamName[(prefix.Length + 1)..]));
-        Assert.Equal([3, 0], table.Items.Select(row => row.Points));
+        Assert.Equal(["Visitante", "Local"], table.Data.Select(row => row.TeamName[(prefix.Length + 1)..]));
+        Assert.Equal([3, 0], table.Data.Select(row => row.Points));
     }
 
     [Theory]

@@ -3,7 +3,7 @@ export const matchStatuses = ["Scheduled", "InProgress", "Finished", "Cancelled"
 export type MatchStatus = (typeof matchStatuses)[number];
 
 export type PagedResult<TItem> = {
-  items: TItem[];
+  data: TItem[];
   pageNumber: number;
   pageSize: number;
   totalRecords: number;

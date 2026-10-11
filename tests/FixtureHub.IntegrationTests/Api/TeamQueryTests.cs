@@ -36,8 +36,8 @@ public sealed class TeamQueryTests(SqlServerFixture database)
         var firstPage = await GetTeamsAsync($"name={Uri.EscapeDataString(prefix)}&pageSize=2");
         var secondPage = await GetTeamsAsync($"name={Uri.EscapeDataString(prefix)}&pageSize=2&pageNumber=2");
 
-        Assert.Equal([$"{prefix} Alfa", $"{prefix} Beta"], firstPage.Items.Select(team => team.Name));
-        Assert.Equal([$"{prefix} Gamma"], secondPage.Items.Select(team => team.Name));
+        Assert.Equal([$"{prefix} Alfa", $"{prefix} Beta"], firstPage.Data.Select(team => team.Name));
+        Assert.Equal([$"{prefix} Gamma"], secondPage.Data.Select(team => team.Name));
         Assert.Equal((3, 2), (firstPage.TotalRecords, firstPage.TotalPages));
     }
 
@@ -50,11 +50,11 @@ public sealed class TeamQueryTests(SqlServerFixture database)
         var json = await _client.GetFromJsonAsync<JsonElement>($"/api/teams?name={Uri.EscapeDataString(prefix)}");
 
         Assert.Equal(
-            ["items", "pageNumber", "pageSize", "totalRecords", "totalPages"],
+            ["data", "pageNumber", "pageSize", "totalRecords", "totalPages"],
             json.EnumerateObject().Select(property => property.Name));
         Assert.Equal(
             ["id", "name", "country", "playerCount"],
-            json.GetProperty("items")[0].EnumerateObject().Select(property => property.Name));
+            json.GetProperty("data")[0].EnumerateObject().Select(property => property.Name));
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public sealed class TeamQueryTests(SqlServerFixture database)
 
         var page = await GetTeamsAsync($"name={Uri.EscapeDataString(prefix)}&sortBy=name&sortDirection=desc");
 
-        Assert.Equal(["Gamma", "Beta", "Alfa"], page.Items.Select(team => team.Name[(prefix.Length + 1)..]));
+        Assert.Equal(["Gamma", "Beta", "Alfa"], page.Data.Select(team => team.Name[(prefix.Length + 1)..]));
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public sealed class TeamQueryTests(SqlServerFixture database)
 
         var page = await GetTeamsAsync($"name={Uri.EscapeDataString(prefix)}");
 
-        var team = Assert.Single(page.Items);
+        var team = Assert.Single(page.Data);
         Assert.Equal((active, 1), (team.Id, team.PlayerCount));
     }
 
@@ -95,7 +95,7 @@ public sealed class TeamQueryTests(SqlServerFixture database)
 
         var page = await GetTeamsAsync($"name={Uri.EscapeDataString($"{prefix} 50% [A]_")}");
 
-        Assert.Equal([$"{prefix} 50% [A]_1"], page.Items.Select(team => team.Name));
+        Assert.Equal([$"{prefix} 50% [A]_1"], page.Data.Select(team => team.Name));
     }
 
     [Theory]
@@ -146,7 +146,7 @@ public sealed class TeamQueryTests(SqlServerFixture database)
     {
         var page = await GetTeamsAsync($"pageNumber={int.MaxValue}&pageSize=100");
 
-        Assert.Empty(page.Items);
+        Assert.Empty(page.Data);
         Assert.Equal(int.MaxValue, page.PageNumber);
     }
 
@@ -188,7 +188,7 @@ public sealed class TeamQueryTests(SqlServerFixture database)
         var page = await _client.GetFromJsonAsync<PagedResult<PlayerItem>>(
             $"/api/teams/{teamId}/players?sortBy=name&pageSize=2&pageNumber=2");
 
-        Assert.Equal(["Carla"], page!.Items.Select(player => player.Name));
+        Assert.Equal(["Carla"], page!.Data.Select(player => player.Name));
         Assert.Equal(3, page.TotalRecords);
     }
 

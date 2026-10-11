@@ -49,7 +49,7 @@ export default async function MatchesPage({ searchParams }: PageProps<"/matches"
   const paging = listQuery(list);
   const query = { ...paging, teamId, status, from, to };
   const header = { pathname, query, list, defaultField: "scheduledAt" };
-  const teamOptions = teams.ok ? teams.data.items.map(({ id, name }) => ({ id, name })) : [];
+  const teamOptions = teams.ok ? teams.data.data.map(({ id, name }) => ({ id, name })) : [];
 
   return (
     <div className="space-y-4">
@@ -114,10 +114,10 @@ export default async function MatchesPage({ searchParams }: PageProps<"/matches"
                   </tr>
                 </thead>
                 <tbody>
-                  {result.data.items.length === 0 && (
+                  {result.data.data.length === 0 && (
                     <EmptyRow columns={5} message={t("list.empty")} />
                   )}
-                  {result.data.items.map((match) => (
+                  {result.data.data.map((match) => (
                     <tr key={match.id} className={row}>
                       <td className={`${cell} whitespace-nowrap text-slate-600`}>
                         <Link href={`/matches/${match.id}`} className={link}>

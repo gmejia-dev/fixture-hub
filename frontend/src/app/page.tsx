@@ -30,7 +30,7 @@ export default async function HomePage() {
         <section className={`${card} p-4`}>
           <div className="flex items-center justify-between gap-2">
             <SectionTitle>{t("home.live")}</SectionTitle>
-            {live.ok && live.data.items.length > 0 && (
+            {live.ok && live.data.data.length > 0 && (
               <AutoRefresh
                 seconds={liveRefreshSeconds}
                 label={t("live.autoRefresh", { seconds: liveRefreshSeconds })}
@@ -38,7 +38,7 @@ export default async function HomePage() {
             )}
           </div>
           {live.ok ? (
-            <MatchCards matches={live.data.items} empty={t("home.noLive")} />
+            <MatchCards matches={live.data.data} empty={t("home.noLive")} />
           ) : (
             <ProblemAlert problem={live.problem} />
           )}
@@ -52,7 +52,7 @@ export default async function HomePage() {
             </Link>
           </div>
           {upcoming.ok ? (
-            <MatchCards matches={upcoming.data.items} empty={t("home.noUpcoming")} />
+            <MatchCards matches={upcoming.data.data} empty={t("home.noUpcoming")} />
           ) : (
             <ProblemAlert problem={upcoming.problem} />
           )}
@@ -76,7 +76,7 @@ export default async function HomePage() {
                 </tr>
               </thead>
               <tbody>
-                {standings.data.items.map((standing) => (
+                {standings.data.data.map((standing) => (
                   <tr key={standing.teamId} className={row}>
                     <td className={`${cell} text-slate-500`}>{standing.position}</td>
                     <td className={cell}>
@@ -103,7 +103,7 @@ export default async function HomePage() {
             </Link>
           </div>
           {scorers.ok ? (
-            scorers.data.items.length === 0 ? (
+            scorers.data.data.length === 0 ? (
               <p className="mt-2 text-sm text-slate-500">{t("home.noScorers")}</p>
             ) : (
               <table className={`${table} mt-2`}>
@@ -116,7 +116,7 @@ export default async function HomePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {scorers.data.items.map((scorer) => (
+                  {scorers.data.data.map((scorer) => (
                     <tr key={scorer.playerId} className={row}>
                       <td className={`${cell} text-slate-500`}>{scorer.position}</td>
                       <td className={`${cell} font-medium`}>{scorer.playerName}</td>
