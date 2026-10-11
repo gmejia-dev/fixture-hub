@@ -1,5 +1,6 @@
 using FixtureHub.Api;
 using FixtureHub.Api.Endpoints;
+using FixtureHub.Api.Observability;
 using FixtureHub.Application;
 using FixtureHub.Infrastructure;
 
@@ -11,7 +12,7 @@ var connectionString = builder.Configuration.GetConnectionString("FixtureHub")
 builder.Services
     .AddApplication()
     .AddInfrastructure(connectionString)
-    .AddApi();
+    .AddApi(builder.Configuration);
 
 var app = builder.Build();
 
@@ -19,6 +20,7 @@ await app.Services.InitializeDatabaseAsync(
     applyMigrations: app.Configuration.GetValue<bool>("Database:ApplyMigrations"),
     seed: app.Configuration.GetValue<bool>("Database:Seed"));
 
+app.UseRequestLogging();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
