@@ -209,6 +209,24 @@ Límites conocidos:
 - **SQL Server no tiene imagen nativa para ARM** (Mac con chip M): corre con emulación, más lento.
 - **Las imágenes se construyen en la máquina.** El paso siguiente es construirlas en CI y publicarlas en un registro con su versión.
 
+## Colección de Postman y diagrama
+
+| Decisión | Motivo |
+|---|---|
+| **La colección es un recorrido del torneo en orden**, con verificaciones en cada request | Sirve para la demo y como prueba de humo de la Api desplegada: se corre completa con el Runner o con Newman contra Docker Compose, y cada request guarda los Ids que usan los siguientes (equipo, jugador, partido, gol). |
+| **Las verificaciones comunes van en el script de la colección** | `X-Trace-Id` en toda respuesta, ProblemDetails con `errorCode` y el mismo `traceId` en los errores, y el contrato de paginación en los listados se comprueban en todas las respuestas sin repetirlos en cada request. |
+| **El environment tiene la configuración; las variables de la colección, lo que genera la corrida** | `baseUrl`, el usuario y la contraseña cambian según dónde corre la Api; el token y los Ids son de cada corrida. La contraseña es de tipo `secret` y se sube vacía. Dos tests impiden subir la contraseña o los valores de una corrida. |
+| **Cada corrida es independiente** | Los nombres llevan un sufijo aleatorio y la última carpeta borra lo creado: la colección se puede correr varias veces sobre la misma base, también la de la demo. |
+| **Un test exige un request por endpoint** | Recorre los endpoints registrados en la Api: si se agrega uno, la colección no puede quedarse atrás. |
+| **Newman con versión fija** (`newman@6.2.2`) | Igual que las imágenes de Docker: el comando del README produce lo mismo hoy y dentro de un mes. Se descartó la 6.2.3, publicada dos días antes de armar la colección. |
+| **El diagrama de arquitectura en Mermaid**, dentro del Markdown | Es texto: se revisa en el diff de un pull request y GitHub lo dibuja. Una imagen exportada se desactualiza sin que nadie lo note. Un test verifica que el del README sea el mismo de `docs/arquitectura.md`. |
+| **Las flechas del diagrama son el flujo de un request** | Muestran por dónde pasan una escritura y una lectura. Entre Application e Infrastructure, la dependencia de código va al revés (Infrastructure implementa las interfaces de Application); eso se explica en la sección de capas de `docs/arquitectura.md`. |
+
+Límites conocidos:
+
+- **La colección no prueba el 403:** el único rol que existe es `Admin`. Lo prueban los tests de integración con un token de otro rol firmado dentro del test.
+- **Newman prueba la Api, no el frontend.** Los flujos del frontend se verificaron a mano; Playwright está en extensiones futuras.
+
 ## Extensiones futuras
 
 - **Varios torneos:** entidad `Tournament` con inscripción de equipos (un equipo una sola vez por torneo). La tabla y los goleadores pasarían a calcularse por torneo.
