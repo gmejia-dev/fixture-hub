@@ -7,6 +7,9 @@ public partial class DockerTests
 {
     private const string ApiDockerfile = "src/FixtureHub.Api/Dockerfile";
     private const string FrontendDockerfile = "frontend/Dockerfile";
+    private const string ComposeFile = "docker-compose.yml";
+
+    private static readonly string[] SecretVariables = ["MSSQL_SA_PASSWORD", "Admin__Password", "Jwt__SigningKey"];
 
     [Fact]
     public void ApiDockerfile_BuildsWithTheSdkPinnedInGlobalJson()
@@ -42,6 +45,65 @@ public partial class DockerTests
         Assert.Matches(@"^node:\d+\.\d+\.\d+-alpine$", images[0]);
     }
 
+    [Fact]
+    public void Compose_TakesEverySecretFromARequiredVariable()
+    {
+        var compose = File.ReadAllText(Repository.File(ComposeFile));
+
+        var secrets = SecretVariables
+            .Select(name => Regex.Match(compose, $@"^\s*{name}:\s*(?<value>.+)$", RegexOptions.Multiline))
+            .Append(Regex.Match(compose, "Password=(?<value>[^;]+);"))
+            .ToList();
+
+        Assert.All(secrets, secret =>
+        {
+            Assert.True(secret.Success, $"{ComposeFile} no define uno de los secretos esperados.");
+            Assert.Matches(@"^\$\{\w+:\?", secret.Groups["value"].Value);
+        });
+    }
+
+    [Fact]
+    public void EnvExample_DocumentsEveryVariableTheComposeFileReads()
+    {
+        var variables = ComposeVariable().Matches(File.ReadAllText(Repository.File(ComposeFile)))
+            .Select(match => match.Groups["name"].Value)
+            .Distinct()
+            .ToList();
+        var documented = File.ReadAllLines(Repository.File(".env.example"))
+            .Where(line => line.Contains('=') && !line.StartsWith('#'))
+            .Select(line => line.Split('=', 2)[0])
+            .ToList();
+
+        Assert.Contains("SQLSERVER_SA_PASSWORD", variables);
+        Assert.Contains("TOURNAMENT_TIME_ZONE", variables);
+        Assert.All(variables, variable => Assert.Contains(variable, documented));
+    }
+
+    [Theory]
+    [InlineData("Database__ApplyMigrations: \"true\"")]
+    [InlineData("Database__Seed: \"true\"")]
+    [InlineData("OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317")]
+    [InlineData("API_BASE_URL: http://api:8080")]
+    public void Compose_ConfiguresTheServicesToWorkTogether(string setting)
+    {
+        var lines = File.ReadAllLines(Repository.File(ComposeFile)).Select(line => line.Trim());
+
+        Assert.Contains(setting, lines);
+    }
+
+    [Theory]
+    [InlineData("tests/FixtureHub.IntegrationTests/SqlServerFixture.cs", "mcr.microsoft.com/mssql/server:")]
+    [InlineData("tests/FixtureHub.IntegrationTests/Observability/JaegerExportTests.cs", "jaegertracing/jaeger:")]
+    public void Compose_RunsTheSameImageTheIntegrationTestsUse(string testFile, string repository)
+    {
+        var tested = Regex.Matches(File.ReadAllText(Repository.File(testFile)), $@"""(?<image>{Regex.Escape(repository)}[^""\s]+)""");
+        var deployed = ComposeImage().Matches(File.ReadAllText(Repository.File(ComposeFile)))
+            .Select(match => match.Groups["image"].Value)
+            .Where(image => image.StartsWith(repository, StringComparison.Ordinal));
+
+        Assert.Equal(Assert.Single(tested).Groups["image"].Value, Assert.Single(deployed));
+    }
+
     private static List<string> BaseImages(string dockerfile) =>
         [.. File.ReadAllLines(Repository.File(dockerfile))
             .Select(line => FromInstruction().Match(line))
@@ -53,4 +115,10 @@ public partial class DockerTests
 
     [GeneratedRegex(@"^FROM\s+\S+\s+AS\s+final$")]
     private static partial Regex FinalStage();
+
+    [GeneratedRegex(@"(?<!\$)\$\{(?<name>\w+)")]
+    private static partial Regex ComposeVariable();
+
+    [GeneratedRegex(@"^\s*image:\s*(?<image>\S+)\s*$", RegexOptions.Multiline)]
+    private static partial Regex ComposeImage();
 }
