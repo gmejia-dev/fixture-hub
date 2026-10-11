@@ -10,6 +10,8 @@ public class ConfigurationTests
         AllowTrailingCommas = true
     };
 
+    private static readonly string[] SecretKeys = ["Admin:Password"];
+
     [Theory]
     [InlineData("appsettings.json")]
     [InlineData("appsettings.Development.json")]
@@ -34,4 +36,25 @@ public class ConfigurationTests
         Assert.StartsWith(@"Server=(localdb)\MSSQLLocalDB;", connectionString, StringComparison.Ordinal);
         Assert.DoesNotContain("Password", connectionString, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Theory]
+    [InlineData("appsettings.json")]
+    [InlineData("appsettings.Development.json")]
+    public void AppSettingsFile_DoesNotContainSecrets(string file)
+    {
+        using var settings = JsonDocument.Parse(File.ReadAllText(Repository.File($"src/FixtureHub.Api/{file}")), AppSettingsOptions);
+
+        var keys = Keys(settings.RootElement, prefix: null).ToList();
+
+        Assert.Contains("Database:Seed", keys);
+        Assert.All(
+            SecretKeys,
+            secret => Assert.DoesNotContain(keys, key => string.Equals(key, secret, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static IEnumerable<string> Keys(JsonElement element, string? prefix) =>
+        element.ValueKind == JsonValueKind.Object
+            ? element.EnumerateObject().SelectMany(property =>
+                Keys(property.Value, prefix is null ? property.Name : $"{prefix}:{property.Name}"))
+            : prefix is null ? [] : [prefix];
 }

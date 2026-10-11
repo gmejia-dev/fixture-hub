@@ -1,3 +1,4 @@
+using FixtureHub.Infrastructure.Authentication;
 using FixtureHub.Infrastructure.Persistence;
 using FixtureHub.Infrastructure.Seeding;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +18,8 @@ public static class DatabaseInitializer
 
         if (applyMigrations)
             await scope.ServiceProvider.GetRequiredService<FixtureHubDbContext>().Database.MigrateAsync(cancellationToken);
+
+        await scope.ServiceProvider.GetRequiredService<AdminAccountInitializer>().EnsureAsync(cancellationToken);
 
         if (seed)
             await scope.ServiceProvider.GetRequiredService<DatabaseSeeder>().SeedAsync(cancellationToken);

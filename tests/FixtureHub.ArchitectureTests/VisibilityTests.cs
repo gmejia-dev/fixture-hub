@@ -24,7 +24,8 @@ public class VisibilityTests
 
         AssertSelects(
             types,
-            "UnitOfWork", "FixtureHubDbContext", "TeamRepository", "IdempotencyStore", "TeamReader", "PagedSql", "DatabaseSeeder");
+            "UnitOfWork", "FixtureHubDbContext", "TeamRepository", "IdempotencyStore", "TeamReader", "PagedSql", "DatabaseSeeder",
+            "Pbkdf2PasswordHasher", "AdminAccountInitializer");
         AssertSuccessful(types.Should().NotBePublic().GetResult());
     }
 
