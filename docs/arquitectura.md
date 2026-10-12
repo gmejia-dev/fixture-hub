@@ -325,7 +325,7 @@ Cada endpoint hace tres cosas y nada más: arma el command o la query con lo que
 }
 ```
 
-- `ProblemMapping` convierte un `Error` en ProblemDetails; `ProblemDetailsEnricher` (el `CustomizeProblemDetails` de ASP.NET Core) agrega a **todas** las respuestas de error el `instance` y el `traceId`.
+- `ProblemMapping` convierte un `Error` en ProblemDetails; `ProblemDetailsEnricher` (el `CustomizeProblemDetails` de ASP.NET Core) agrega a **todas** las respuestas de error el `instance` y el `traceId`, y el `errorCode` a las que no pasaron por un `Result`: 401 `Auth.Unauthenticated`, 403 `Auth.Forbidden`, 404 `Route.NotFound` (ruta inexistente) y 405 `Route.MethodNotAllowed`. Un 404 de un handler conserva su propio código (`Team.NotFound`).
 - El `traceId` son los 32 caracteres del trace W3C, el mismo valor que se guarda en la tabla `DomainEvents`. Si el cliente manda un header `traceparent`, se respeta.
 - `GlobalExceptionHandler` (`IExceptionHandler`): un body o un parámetro mal formado (JSON inválido, `"diez"` en un número) es 400 `Request.Malformed`; cualquier otra excepción es 500 `Server.Unexpected`, sin el mensaje de la excepción. `RouteHandlerOptions.ThrowOnBadRequest = true` hace que los errores de binding también pasen por ahí, en todos los entornos.
 
@@ -355,7 +355,7 @@ POST /api/teams  (Authorization: Bearer …)
 | `JwtOptions`, `JwtTokenIssuer` | Api | Emiten el token. Las mismas opciones construyen los `TokenValidationParameters`, así que emisor y validador no pueden quedar desalineados. |
 | `AddJwtAuthentication` | Api | `JwtBearer` + autorización; valida la configuración al arrancar (`ValidateOnStart`) |
 | `RequireAdminForWrites` | Api | Convención del grupo `/api`: todo endpoint que no sea solo `GET` recibe `[Authorize(Roles = "Admin")]`. Un endpoint nuevo queda protegido sin acordarse. |
-| `ProblemDetailsEnricher` | Api | El 401 y el 403 del middleware salen como ProblemDetails con `errorCode` (`Auth.Unauthenticated`, `Auth.Forbidden`) |
+| `ProblemDetailsEnricher` | Api | El 401 y el 403 del middleware salen como ProblemDetails con `errorCode` (`Auth.Unauthenticated`, `Auth.Forbidden`); también el 404 de una ruta inexistente (`Route.NotFound`) y el 405 (`Route.MethodNotAllowed`) |
 
 - **Token:** HS256, 60 minutos (`Jwt:ExpirationMinutes`), con `sub` (Id del usuario), `name`, `role` y `jti`. Se valida firma, algoritmo (solo HS256: un token `alg: none` se rechaza), emisor, audiencia y vencimiento con 30 s de tolerancia. `MapInboundClaims = false` deja los claims con sus nombres JWT.
 - **El login no revela qué usuarios existen:** usuario inexistente y contraseña incorrecta dan la misma respuesta, y en los dos casos se calcula un PBKDF2 para que el tiempo de respuesta tampoco los distinga.

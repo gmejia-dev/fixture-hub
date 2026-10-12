@@ -3374,6 +3374,72 @@
           "response": []
         },
         {
+          "name": "404 Ruta inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"errorCode Route.NotFound\", () => pm.expect(pm.response.json().errorCode).to.eql(\"Route.NotFound\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/no-existe",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "no-existe"
+              ]
+            },
+            "description": "Una ruta que no existe también responde ProblemDetails con `errorCode`: el enriquecedor de ProblemDetails le pone `Route.NotFound` porque ningún handler la atendió. Un 404 de un handler (`Team.NotFound`) conserva su propio código.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "405 Método que la ruta no acepta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 405\", () => pm.response.to.have.status(405));",
+                  "pm.test(\"errorCode Route.MethodNotAllowed\", () => pm.expect(pm.response.json().errorCode).to.eql(\"Route.MethodNotAllowed\"));",
+                  "pm.test(\"El header Allow lista los métodos de la ruta\", () => pm.expect(pm.response.headers.get(\"Allow\")).to.include(\"POST\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/teams",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "teams"
+              ]
+            },
+            "description": "`/api/teams` acepta GET y POST, no PATCH: el ruteo responde 405 con el header `Allow` y el enriquecedor agrega `Route.MethodNotAllowed`."
+          },
+          "response": []
+        },
+        {
           "name": "409 Nombre de equipo repetido",
           "event": [
             {
