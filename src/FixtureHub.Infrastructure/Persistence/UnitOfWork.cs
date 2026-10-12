@@ -21,6 +21,7 @@ internal sealed partial class UnitOfWork(
     public async Task BeginTransactionAsync(CancellationToken cancellationToken)
     {
         _transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        LogTransactionStarted(logger);
     }
 
     public async Task<Result> CommitAsync(CancellationToken cancellationToken)
@@ -30,9 +31,10 @@ internal sealed partial class UnitOfWork(
 
         await DispatchDomainEventsAsync(cancellationToken);
 
+        int changes;
         try
         {
-            await context.SaveChangesAsync(cancellationToken);
+            changes = await context.SaveChangesAsync(cancellationToken);
         }
         catch (DbUpdateException exception) when (UniqueIndexViolation.ToError(exception) is { } error)
         {
@@ -43,6 +45,7 @@ internal sealed partial class UnitOfWork(
 
         await _transaction.DisposeAsync();
         _transaction = null;
+        LogTransactionCommitted(logger, changes);
 
         return Result.Success();
     }
@@ -54,6 +57,7 @@ internal sealed partial class UnitOfWork(
             await _transaction.RollbackAsync(cancellationToken);
             await _transaction.DisposeAsync();
             _transaction = null;
+            LogTransactionRolledBack(logger);
         }
     }
 
@@ -92,4 +96,13 @@ internal sealed partial class UnitOfWork(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Evento de dominio {DomainEventType} registrado con Id {DomainEventId}")]
     private static partial void LogDomainEvent(ILogger logger, string domainEventType, Guid domainEventId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Transacción abierta")]
+    private static partial void LogTransactionStarted(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Transacción confirmada; cambios guardados: {Changes}")]
+    private static partial void LogTransactionCommitted(ILogger logger, int changes);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Transacción revertida")]
+    private static partial void LogTransactionRolledBack(ILogger logger);
 }

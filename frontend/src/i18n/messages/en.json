@@ -173,6 +173,8 @@
 
   "error.Request.Malformed": "The request is not in a valid format.",
   "error.Server.Unexpected": "An unexpected server error occurred.",
+  "error.Route.NotFound": "The requested address does not exist on the server.",
+  "error.Route.MethodNotAllowed": "The server does not allow this operation on that address.",
   "error.Validation.Failed": "Check the highlighted fields.",
 
   "error.Auth.UsernameRequired": "Enter your username.",

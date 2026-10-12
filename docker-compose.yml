@@ -6,7 +6,7 @@ services:
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_PID: Developer
-      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD:?Configura SQLSERVER_SA_PASSWORD en el archivo .env (ver .env.example)}
+      MSSQL_SA_PASSWORD: ${SQLSERVER_SA_PASSWORD:-FixtureHub-Sql-2026}
     ports:
       - "127.0.0.1:1433:1433"
     volumes:
@@ -24,12 +24,12 @@ services:
       context: .
       dockerfile: src/FixtureHub.Api/Dockerfile
     environment:
-      ConnectionStrings__FixtureHub: Server=sqlserver,1433;Database=FixtureHub;User Id=sa;Password=${SQLSERVER_SA_PASSWORD:?Configura SQLSERVER_SA_PASSWORD en el archivo .env (ver .env.example)};TrustServerCertificate=True
+      ConnectionStrings__FixtureHub: Server=sqlserver,1433;Database=FixtureHub;User Id=sa;Password=${SQLSERVER_SA_PASSWORD:-FixtureHub-Sql-2026};TrustServerCertificate=True
       Database__ApplyMigrations: "true"
       Database__Seed: "true"
-      Admin__Username: ${Admin__Username:?Configura Admin__Username en el archivo .env (ver .env.example)}
-      Admin__Password: ${Admin__Password:?Configura Admin__Password en el archivo .env (ver .env.example)}
-      Jwt__SigningKey: ${Jwt__SigningKey:?Configura Jwt__SigningKey en el archivo .env (ver .env.example)}
+      Admin__Username: ${Admin__Username:-admin}
+      Admin__Password: ${Admin__Password:-FixtureHub-Admin-2026}
+      Jwt__SigningKey: ${Jwt__SigningKey:-fixturehub-demo-signing-key-only-for-localhost}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
     ports:
       - "127.0.0.1:5065:8080"

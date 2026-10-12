@@ -325,7 +325,7 @@ Cada endpoint hace tres cosas y nada más: arma el command o la query con lo que
 }
 ```
 
-- `ProblemMapping` convierte un `Error` en ProblemDetails; `ProblemDetailsEnricher` (el `CustomizeProblemDetails` de ASP.NET Core) agrega a **todas** las respuestas de error el `instance` y el `traceId`.
+- `ProblemMapping` convierte un `Error` en ProblemDetails; `ProblemDetailsEnricher` (el `CustomizeProblemDetails` de ASP.NET Core) agrega a **todas** las respuestas de error el `instance` y el `traceId`, y el `errorCode` a las que no pasaron por un `Result`: 401 `Auth.Unauthenticated`, 403 `Auth.Forbidden`, 404 `Route.NotFound` (ruta inexistente) y 405 `Route.MethodNotAllowed`. Un 404 de un handler conserva su propio código (`Team.NotFound`).
 - El `traceId` son los 32 caracteres del trace W3C, el mismo valor que se guarda en la tabla `DomainEvents`. Si el cliente manda un header `traceparent`, se respeta.
 - `GlobalExceptionHandler` (`IExceptionHandler`): un body o un parámetro mal formado (JSON inválido, `"diez"` en un número) es 400 `Request.Malformed`; cualquier otra excepción es 500 `Server.Unexpected`, sin el mensaje de la excepción. `RouteHandlerOptions.ThrowOnBadRequest = true` hace que los errores de binding también pasen por ahí, en todos los entornos.
 
@@ -355,12 +355,12 @@ POST /api/teams  (Authorization: Bearer …)
 | `JwtOptions`, `JwtTokenIssuer` | Api | Emiten el token. Las mismas opciones construyen los `TokenValidationParameters`, así que emisor y validador no pueden quedar desalineados. |
 | `AddJwtAuthentication` | Api | `JwtBearer` + autorización; valida la configuración al arrancar (`ValidateOnStart`) |
 | `RequireAdminForWrites` | Api | Convención del grupo `/api`: todo endpoint que no sea solo `GET` recibe `[Authorize(Roles = "Admin")]`. Un endpoint nuevo queda protegido sin acordarse. |
-| `ProblemDetailsEnricher` | Api | El 401 y el 403 del middleware salen como ProblemDetails con `errorCode` (`Auth.Unauthenticated`, `Auth.Forbidden`) |
+| `ProblemDetailsEnricher` | Api | El 401 y el 403 del middleware salen como ProblemDetails con `errorCode` (`Auth.Unauthenticated`, `Auth.Forbidden`); también el 404 de una ruta inexistente (`Route.NotFound`) y el 405 (`Route.MethodNotAllowed`) |
 
 - **Token:** HS256, 60 minutos (`Jwt:ExpirationMinutes`), con `sub` (Id del usuario), `name`, `role` y `jti`. Se valida firma, algoritmo (solo HS256: un token `alg: none` se rechaza), emisor, audiencia y vencimiento con 30 s de tolerancia. `MapInboundClaims = false` deja los claims con sus nombres JWT.
 - **El login no revela qué usuarios existen:** usuario inexistente y contraseña incorrecta dan la misma respuesta, y en los dos casos se calcula un PBKDF2 para que el tiempo de respuesta tampoco los distinga.
 - **El login queda fuera del filtro de idempotencia:** está en su propio grupo, porque repetirlo no cambia nada.
-- **Secretos fuera del repositorio:** `Admin:Password` y `Jwt:SigningKey` vienen de user-secrets en desarrollo o de variables de entorno (`Admin__Password`, `Jwt__SigningKey`; Docker Compose las toma de un `.env`). Si faltan o son débiles (contraseña de menos de 12 caracteres, clave de menos de 32 bytes), la Api no arranca y el mensaje nombra el ajuste. Un test impide que aparezcan en los `appsettings*.json`.
+- **Secretos fuera del repositorio:** `Admin:Password` y `Jwt:SigningKey` vienen de user-secrets en desarrollo o de variables de entorno (`Admin__Password`, `Jwt__SigningKey`; Docker Compose las toma de un `.env` o, sin él, usa las credenciales de demo que publica el README). Si faltan o son débiles (contraseña de menos de 12 caracteres, clave de menos de 32 bytes), la Api no arranca y el mensaje nombra el ajuste. Un test impide que aparezcan en los `appsettings*.json`.
 
 ## Observabilidad
 
@@ -381,7 +381,7 @@ HTTP (traceparent opcional)
 - El código escribe con `ILogger<T>` y mensajes generados con `[LoggerMessage]`; **Serilog es solo el proveedor**, configurado en la Api (`AddStructuredLogging`). Ninguna otra capa lo referencia (dos tests lo verifican: en el código compilado y en los `.csproj`).
 - **Salida:** consola. En Development, texto legible con el TraceId al final de cada línea; en cualquier otro entorno (`Observability:JsonConsole`), JSON compacto, un evento por línea, listo para que lo indexe Docker, Loki, Seq o Elastic.
 - **Un log por request** (`UseSerilogRequestLogging`), con `RequestMethod`, `RequestPath`, `StatusCode`, `Elapsed` (ms), `Route` (la plantilla, por ejemplo `/api/teams/{teamId:guid}`) y `UserId` si el request vino con token. Reemplaza a los logs de ASP.NET Core (nivel `Warning`). Un 5xx sale como `Error`; un 4xx, como `Information`: es un error del cliente, no del servidor. Los health checks salen como `Verbose`, es decir, no salen: Docker los consulta cada 10 segundos.
-- **Niveles** en la sección `Serilog` de `appsettings.json` (se pueden cambiar con variables de entorno, por ejemplo `Serilog__MinimumLevel__Default=Debug`). Los comandos SQL de EF Core quedan en `Warning`: el SQL se ve en las trazas.
+- **Niveles** en la sección `Serilog` de `appsettings.json` (se pueden cambiar con variables de entorno, por ejemplo `Serilog__MinimumLevel__Default=Debug`). Los comandos SQL de EF Core quedan en `Warning`: el SQL se ve en las trazas. Se usan los cuatro niveles: `Error` (una excepción inesperada, un 5xx o un health check que falla), `Warning` (un command rechazado), `Information` (cada request, cada command y cada evento de dominio) y `Debug` (el Unit of Work: transacción abierta, confirmada con la cantidad de cambios, o revertida). `Debug` está encendido para el código de FixtureHub en Development (`Serilog:MinimumLevel:Override:FixtureHub`); en Docker se enciende con `Serilog__MinimumLevel__Override__FixtureHub=Debug`.
 - **Nunca se loguea** el contenido de un command, el body, la contraseña ni el token. `RequestPath` no incluye la query string.
 - Un test de arquitectura impide usar en las plantillas nombres que ya pone el pipeline (`EventId`, `SourceContext`, `Scope`, `UserId`, `Route`): con Serilog, un `{EventId}` en el mensaje queda pisado por el `EventId` de `[LoggerMessage]`.
 
@@ -644,9 +644,9 @@ Las reglas de dependencia se verifican con tests de arquitectura (`tests/Fixture
 | `FrontendCatalogTests` | Cada código de error y cada estado del partido tiene traducción en `es.json` y `en.json`; los marcadores de cada mensaje existen en la `metadata` de su error; los errores constantes escriben sus límites |
 | `ApiDockerfile_BuildsWithTheSdkPinnedInGlobalJson` | La imagen de la Api compila con el mismo SDK que fija `global.json` |
 | `Dockerfile_FinalStage_RunsAsANonRootUser` y `FrontendDockerfile_UsesTheSameNodeImageInEveryStage` | Las dos imágenes corren sin root; el frontend usa una sola versión fija de Node.js |
-| `Compose_TakesEverySecretFromARequiredVariable` y `EnvExample_DocumentsEveryVariableTheComposeFileReads` | Ningún secreto está escrito en `docker-compose.yml` (todos son `${VARIABLE:?mensaje}`) y `.env.example` lista cada variable que el compose lee |
+| `Compose_TakesEverySecretFromAVariableWithADemoDefault`, `Compose_GivesSqlServerAndTheApiTheSameDemoPassword`, `Readme_DocumentsEveryDemoValueOfTheCompose` y `EnvExample_DocumentsEveryVariableTheComposeFileReads` | Ningún secreto es un literal suelto en `docker-compose.yml`: todos son `${VARIABLE:-valor de demo}`, que el `.env` reemplaza; SQL Server y la Api comparten la contraseña de demo; el README publica cada valor de demo y `.env.example` lista cada variable que el compose lee |
 | `Compose_ConfiguresTheServicesToWorkTogether` y `Compose_RunsTheSameImageTheIntegrationTestsUse` | Migraciones, seed, Jaeger y la dirección de la Api están configurados; SQL Server y Jaeger tienen la misma versión que en los tests de integración |
-| `Environment_DoesNotContainTheAdminPassword` y `Collection_DoesNotContainTheValuesOfARun` | La colección de Postman y su environment se suben sin la contraseña del administrador ni los valores de una corrida (el token, los Ids) |
+| `Environment_HasOnlyTheDemoAdminPasswordOfTheCompose` y `Collection_DoesNotContainTheValuesOfARun` | El environment de Postman solo puede traer la contraseña de demo del compose, nunca una real, y la colección se sube sin los valores de una corrida (el token, los Ids) |
 | `Environment_PointsToTheSameAddressAsDotnetRunTheComposeAndTheHttpFile` | Postman, `dotnet run`, docker-compose y `FixtureHub.Api.http` usan la misma dirección de la Api |
 | `ArchitectureDiagram_IsTheSameInTheReadmeAndInTheArchitectureDocument` | El diagrama del README es el mismo de este documento |
 

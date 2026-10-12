@@ -121,11 +121,25 @@ public sealed class ProblemDetailsTests(SqlServerFixture database)
     }
 
     [Fact]
-    public async Task UnknownRoute_Returns404AsProblemDetails()
+    public async Task UnknownRoute_Returns404WithRouteNotFound()
     {
         var response = await _client.GetAsync("/api/no-existe");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.Equal(404, (await response.ReadProblemAsync()).GetProperty("status").GetInt32());
+        var problem = await response.ReadProblemAsync();
+        Assert.Equal(404, problem.GetProperty("status").GetInt32());
+        Assert.Equal("Route.NotFound", problem.ErrorCode());
+        Assert.Empty(problem.Metadata().EnumerateObject());
+    }
+
+    [Fact]
+    public async Task MethodTheRouteDoesNotAccept_Returns405WithMethodNotAllowed()
+    {
+        var response = await _client.PatchAsync("/api/teams", content: null);
+
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+        var problem = await response.ReadProblemAsync();
+        Assert.Equal("Route.MethodNotAllowed", problem.ErrorCode());
+        Assert.Empty(problem.Metadata().EnumerateObject());
     }
 }

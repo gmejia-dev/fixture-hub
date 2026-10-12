@@ -173,6 +173,8 @@
 
   "error.Request.Malformed": "La solicitud no tiene un formato válido.",
   "error.Server.Unexpected": "Ocurrió un error inesperado en el servidor.",
+  "error.Route.NotFound": "La dirección solicitada no existe en el servidor.",
+  "error.Route.MethodNotAllowed": "El servidor no admite esta operación en esa dirección.",
   "error.Validation.Failed": "Revisa los datos marcados.",
 
   "error.Auth.UsernameRequired": "Escribe tu usuario.",

@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "5b0f8c55-9d0e-4c43-a7a5-3f0b8f3c1a6e",
     "name": "FixtureHub API",
-    "description": "Colección de la API de FixtureHub: un recorrido completo del torneo que se corre en orden y verifica cada respuesta.\n\n**Cómo usarla**\n\n1. Levanta la Api (`docker compose up -d --build --wait` o `dotnet run`; ver el README).\n2. Importa esta colección y el environment `FixtureHub.postman_environment.json` (carpeta `postman/` del repositorio).\n3. En el environment, completa `adminPassword` con `Admin__Password` del `.env` (o la de user-secrets). `baseUrl` es `http://localhost:5065` en los dos modos.\n4. Corre la colección completa con el Runner, o con Newman: `npx newman run postman/FixtureHub.postman_collection.json -e postman/FixtureHub.postman_environment.json --env-var adminPassword=<contraseña>`.\n\n**Qué verifica en todas las respuestas** (script de la colección): el header `X-Trace-Id`; en los errores, ProblemDetails con `errorCode` y el mismo `traceId`; en los listados, el contrato de paginación del enunciado (`data`, `pageNumber`, `pageSize`, `totalRecords`, `totalPages`).\n\nLas escrituras usan el token del login (autorización Bearer heredada de la colección); las lecturas van sin token porque son públicas. Cada recorrido usa un sufijo propio (`runId`) en los nombres, y la carpeta 10 borra lo que creó: se puede correr varias veces sobre la misma base.",
+    "description": "Colección de la API de FixtureHub: un recorrido completo del torneo que se corre en orden y verifica cada respuesta.\n\n**Cómo usarla**\n\n1. Levanta la Api (`docker compose up -d --build --wait` o `dotnet run`; ver el README).\n2. Importa esta colección y el environment `FixtureHub.postman_environment.json` (carpeta `postman/` del repositorio).\n3. El environment ya trae en `adminPassword` la contraseña de demo de `docker-compose`. Si levantaste con tu propio `.env` o con `dotnet run` (user-secrets), cámbiala ahí. `baseUrl` es `http://localhost:5065` en los dos modos.\n4. Corre la colección completa con el Runner, o con Newman: `npx newman run postman/FixtureHub.postman_collection.json -e postman/FixtureHub.postman_environment.json` (con otra contraseña, agrega `--env-var adminPassword=<contraseña>`).\n\n**Qué verifica en todas las respuestas** (script de la colección): el header `X-Trace-Id`; en los errores, ProblemDetails con `errorCode` y el mismo `traceId`; en los listados, el contrato de paginación del enunciado (`data`, `pageNumber`, `pageSize`, `totalRecords`, `totalPages`).\n\nLas escrituras usan el token del login (autorización Bearer heredada de la colección); las lecturas van sin token porque son públicas. Cada recorrido usa un sufijo propio (`runId`) en los nombres, y la carpeta 10 borra lo que creó: se puede correr varias veces sobre la misma base.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -3370,6 +3370,72 @@
             "auth": {
               "type": "noauth"
             }
+          },
+          "response": []
+        },
+        {
+          "name": "404 Ruta inexistente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"errorCode Route.NotFound\", () => pm.expect(pm.response.json().errorCode).to.eql(\"Route.NotFound\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/no-existe",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "no-existe"
+              ]
+            },
+            "description": "Una ruta que no existe también responde ProblemDetails con `errorCode`: el enriquecedor de ProblemDetails le pone `Route.NotFound` porque ningún handler la atendió. Un 404 de un handler (`Team.NotFound`) conserva su propio código.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "405 Método que la ruta no acepta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Responde 405\", () => pm.response.to.have.status(405));",
+                  "pm.test(\"errorCode Route.MethodNotAllowed\", () => pm.expect(pm.response.json().errorCode).to.eql(\"Route.MethodNotAllowed\"));",
+                  "pm.test(\"El header Allow lista los métodos de la ruta\", () => pm.expect(pm.response.headers.get(\"Allow\")).to.include(\"POST\"));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/teams",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "teams"
+              ]
+            },
+            "description": "`/api/teams` acepta GET y POST, no PATCH: el ruteo responde 405 con el header `Allow` y el enriquecedor agrega `Route.MethodNotAllowed`."
           },
           "response": []
         },

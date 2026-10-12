@@ -1,4 +1,5 @@
 using FixtureHub.Application.Abstractions.Authentication;
+using FixtureHub.Application.Abstractions.Persistence;
 using FixtureHub.Application.Authentication;
 using FixtureHub.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -9,6 +10,7 @@ namespace FixtureHub.Infrastructure.Authentication;
 
 internal sealed partial class AdminAccountInitializer(
     FixtureHubDbContext context,
+    IUnitOfWork unitOfWork,
     IPasswordHasher passwordHasher,
     IOptions<AdminOptions> options,
     ILogger<AdminAccountInitializer> logger)
@@ -21,7 +23,7 @@ internal sealed partial class AdminAccountInitializer(
         if (account is null)
         {
             context.Users.Add(new UserAccount(Guid.CreateVersion7(), admin.Username, passwordHasher.Hash(admin.Password), Roles.Admin));
-            await context.SaveChangesAsync(cancellationToken);
+            await SaveAsync(cancellationToken);
             LogCreated(logger, admin.Username);
             return;
         }
@@ -30,8 +32,20 @@ internal sealed partial class AdminAccountInitializer(
             return;
 
         account.ChangePasswordHash(passwordHasher.Hash(admin.Password));
-        await context.SaveChangesAsync(cancellationToken);
+        await SaveAsync(cancellationToken);
         LogPasswordChanged(logger, admin.Username);
+    }
+
+    private async Task SaveAsync(CancellationToken cancellationToken)
+    {
+        await unitOfWork.BeginTransactionAsync(cancellationToken);
+
+        var saved = await unitOfWork.CommitAsync(cancellationToken);
+        if (saved.IsSuccess)
+            return;
+
+        await unitOfWork.RollbackAsync(CancellationToken.None);
+        throw new InvalidOperationException($"No se pudo guardar el administrador: {saved.Error.Code}.");
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Administrador {Username} creado")]

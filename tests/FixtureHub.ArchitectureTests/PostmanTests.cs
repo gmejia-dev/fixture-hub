@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace FixtureHub.ArchitectureTests;
 
@@ -8,16 +9,20 @@ public class PostmanTests
     private const string EnvironmentFile = "postman/FixtureHub.postman_environment.json";
 
     [Fact]
-    public void Environment_DoesNotContainTheAdminPassword()
+    public void Environment_HasOnlyTheDemoAdminPasswordOfTheCompose()
     {
         using var environment = JsonDocument.Parse(File.ReadAllText(Repository.File(EnvironmentFile)));
+        var demoPassword = Regex.Match(
+            File.ReadAllText(Repository.File("docker-compose.yml")),
+            @"Admin__Password:\s*\$\{Admin__Password:-(?<value>[^}]+)\}").Groups["value"].Value;
 
         var password = Variable(environment.RootElement.GetProperty("values"), "adminPassword");
 
+        Assert.NotEmpty(demoPassword);
         Assert.Equal("secret", password.GetProperty("type").GetString());
         Assert.True(
-            string.IsNullOrEmpty(password.GetProperty("value").GetString()),
-            "El environment de Postman tiene la contraseña del administrador: déjala vacía antes de hacer commit.");
+            password.GetProperty("value").GetString() == demoPassword,
+            "El environment de Postman debe tener la contraseña de demo del docker-compose, nunca una real: restáurala antes de hacer commit.");
     }
 
     [Fact]

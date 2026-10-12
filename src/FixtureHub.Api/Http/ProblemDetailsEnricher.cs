@@ -11,7 +11,9 @@ internal static class ProblemDetailsEnricher
     private static readonly IReadOnlyDictionary<int, Error> ErrorsByStatus = new Dictionary<int, Error>
     {
         [StatusCodes.Status401Unauthorized] = AuthErrors.Unauthenticated,
-        [StatusCodes.Status403Forbidden] = AuthErrors.Forbidden
+        [StatusCodes.Status403Forbidden] = AuthErrors.Forbidden,
+        [StatusCodes.Status404NotFound] = ApiErrors.RouteNotFound,
+        [StatusCodes.Status405MethodNotAllowed] = ApiErrors.MethodNotAllowed
     };
 
     public static void Enrich(ProblemDetailsContext context)
