@@ -360,7 +360,7 @@ POST /api/teams  (Authorization: Bearer …)
 - **Token:** HS256, 60 minutos (`Jwt:ExpirationMinutes`), con `sub` (Id del usuario), `name`, `role` y `jti`. Se valida firma, algoritmo (solo HS256: un token `alg: none` se rechaza), emisor, audiencia y vencimiento con 30 s de tolerancia. `MapInboundClaims = false` deja los claims con sus nombres JWT.
 - **El login no revela qué usuarios existen:** usuario inexistente y contraseña incorrecta dan la misma respuesta, y en los dos casos se calcula un PBKDF2 para que el tiempo de respuesta tampoco los distinga.
 - **El login queda fuera del filtro de idempotencia:** está en su propio grupo, porque repetirlo no cambia nada.
-- **Secretos fuera del repositorio:** `Admin:Password` y `Jwt:SigningKey` vienen de user-secrets en desarrollo o de variables de entorno (`Admin__Password`, `Jwt__SigningKey`; Docker Compose las toma de un `.env`). Si faltan o son débiles (contraseña de menos de 12 caracteres, clave de menos de 32 bytes), la Api no arranca y el mensaje nombra el ajuste. Un test impide que aparezcan en los `appsettings*.json`.
+- **Secretos fuera del repositorio:** `Admin:Password` y `Jwt:SigningKey` vienen de user-secrets en desarrollo o de variables de entorno (`Admin__Password`, `Jwt__SigningKey`; Docker Compose las toma de un `.env` o, sin él, usa las credenciales de demo que publica el README). Si faltan o son débiles (contraseña de menos de 12 caracteres, clave de menos de 32 bytes), la Api no arranca y el mensaje nombra el ajuste. Un test impide que aparezcan en los `appsettings*.json`.
 
 ## Observabilidad
 
@@ -644,9 +644,9 @@ Las reglas de dependencia se verifican con tests de arquitectura (`tests/Fixture
 | `FrontendCatalogTests` | Cada código de error y cada estado del partido tiene traducción en `es.json` y `en.json`; los marcadores de cada mensaje existen en la `metadata` de su error; los errores constantes escriben sus límites |
 | `ApiDockerfile_BuildsWithTheSdkPinnedInGlobalJson` | La imagen de la Api compila con el mismo SDK que fija `global.json` |
 | `Dockerfile_FinalStage_RunsAsANonRootUser` y `FrontendDockerfile_UsesTheSameNodeImageInEveryStage` | Las dos imágenes corren sin root; el frontend usa una sola versión fija de Node.js |
-| `Compose_TakesEverySecretFromARequiredVariable` y `EnvExample_DocumentsEveryVariableTheComposeFileReads` | Ningún secreto está escrito en `docker-compose.yml` (todos son `${VARIABLE:?mensaje}`) y `.env.example` lista cada variable que el compose lee |
+| `Compose_TakesEverySecretFromAVariableWithADemoDefault`, `Compose_GivesSqlServerAndTheApiTheSameDemoPassword`, `Readme_DocumentsEveryDemoValueOfTheCompose` y `EnvExample_DocumentsEveryVariableTheComposeFileReads` | Ningún secreto es un literal suelto en `docker-compose.yml`: todos son `${VARIABLE:-valor de demo}`, que el `.env` reemplaza; SQL Server y la Api comparten la contraseña de demo; el README publica cada valor de demo y `.env.example` lista cada variable que el compose lee |
 | `Compose_ConfiguresTheServicesToWorkTogether` y `Compose_RunsTheSameImageTheIntegrationTestsUse` | Migraciones, seed, Jaeger y la dirección de la Api están configurados; SQL Server y Jaeger tienen la misma versión que en los tests de integración |
-| `Environment_DoesNotContainTheAdminPassword` y `Collection_DoesNotContainTheValuesOfARun` | La colección de Postman y su environment se suben sin la contraseña del administrador ni los valores de una corrida (el token, los Ids) |
+| `Environment_HasOnlyTheDemoAdminPasswordOfTheCompose` y `Collection_DoesNotContainTheValuesOfARun` | El environment de Postman solo puede traer la contraseña de demo del compose, nunca una real, y la colección se sube sin los valores de una corrida (el token, los Ids) |
 | `Environment_PointsToTheSameAddressAsDotnetRunTheComposeAndTheHttpFile` | Postman, `dotnet run`, docker-compose y `FixtureHub.Api.http` usan la misma dirección de la Api |
 | `ArchitectureDiagram_IsTheSameInTheReadmeAndInTheArchitectureDocument` | El diagrama del README es el mismo de este documento |
 

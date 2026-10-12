@@ -111,7 +111,7 @@ fixture-hub/
 ├── postman/                        Colección de Postman y su environment
 ├── docs/                           Arquitectura y decisiones de diseño
 ├── docker-compose.yml              SQL Server, Api, frontend y Jaeger
-├── .env.example                    Variables de entorno con secretos para docker-compose (copiar como .env)
+├── .env.example                    Variables opcionales de docker-compose para reemplazar las credenciales de demo (copiar como .env)
 ├── dotnet-tools.json               Herramientas locales (dotnet-ef)
 ├── Directory.Build.props           Configuración común (C# 14, nullable, warnings como errores)
 ├── global.json                     Versión fija del SDK de .NET
@@ -124,23 +124,33 @@ fixture-hub/
 
 Requisitos: Docker Desktop (o Docker Engine con Compose v2) con al menos 4 GB de memoria para los contenedores; SQL Server pide 2 GB.
 
-**La primera vez**, copia [`.env.example`](.env.example) como `.env` y completa los valores. Cada variable tiene un comentario con sus requisitos y un comando de PowerShell para generar un valor aleatorio:
+Desde la raíz del repositorio, sin configurar nada:
 
 ```bash
-cp .env.example .env
+docker-compose up
 ```
 
-Después:
+O, para que corra en segundo plano y el comando vuelva cuando todo esté sano:
 
 ```bash
 docker compose up -d --build --wait
 ```
 
-El comando vuelve cuando todo está sano. La primera vez construye las imágenes (unos 3 minutos) y descarga SQL Server (unos 1,5 GB) si no está en la máquina. Los servicios arrancan en orden: SQL Server; después la Api, que aplica las migraciones, crea el administrador y carga el torneo de ejemplo; y al final el frontend.
+La primera vez construye las imágenes (unos 3 minutos) y descarga SQL Server (unos 1,5 GB) si no está en la máquina. Los servicios arrancan en orden: SQL Server; después la Api, que aplica las migraciones, crea el administrador y carga el torneo de ejemplo; y al final el frontend.
+
+**Credenciales de demo.** Sin un `.env`, el compose usa estos valores, pensados solo para probar en tu máquina (los puertos se abren únicamente en `127.0.0.1`):
+
+| Para | Usuario | Contraseña o clave |
+|---|---|---|
+| Iniciar sesión en el frontend y en la Api | `admin` | `FixtureHub-Admin-2026` |
+| SQL Server | `sa` | `FixtureHub-Sql-2026` |
+| Firma de los JWT | — | `fixturehub-demo-signing-key-only-for-localhost` |
+
+La zona horaria del torneo es `America/El_Salvador`. **No son secretos:** están publicados aquí a propósito. Para cualquier otro uso, copia [`.env.example`](.env.example) como `.env` y define valores propios: cada variable con valor reemplaza la de demo. El archivo explica los requisitos de cada una y trae comandos de PowerShell para generar valores aleatorios.
 
 | Servicio | Dirección | Qué es |
 |---|---|---|
-| Frontend | `http://localhost:3000` | El sitio. Para administrar, inicia sesión con `Admin__Username` y `Admin__Password` del `.env` |
+| Frontend | `http://localhost:3000` | El sitio. Para administrar, inicia sesión con el usuario y la contraseña de arriba (o los de tu `.env`) |
 | Api | `http://localhost:5065` | El mismo puerto que con `dotnet run`: [`FixtureHub.Api.http`](src/FixtureHub.Api/FixtureHub.Api.http) y la [colección de Postman](#colección-de-postman) funcionan igual |
 | Jaeger | `http://localhost:16686` | Las trazas, bajo el servicio `fixturehub-api` |
 | SQL Server | `localhost,1433` (usuario `sa`) | Para revisar la base con SSMS o Azure Data Studio |
@@ -154,7 +164,7 @@ Los puertos solo se abren en `127.0.0.1`. Si alguno está ocupado (por ejemplo, 
 | `docker compose down` | Detiene y borra los contenedores; los datos quedan en el volumen |
 | `docker compose down -v` | Borra también la base: la próxima vez se crea de nuevo con el seed |
 
-La contraseña de `sa` se fija la primera vez que se crea el volumen de SQL Server: si la cambias después en el `.env`, borra el volumen con `docker compose down -v`.
+La contraseña de `sa` se fija la primera vez que se crea el volumen de SQL Server: si la cambias después (por ejemplo, al pasar de la de demo a la de tu `.env`), borra el volumen con `docker compose down -v`.
 
 ### En desarrollo, sin Docker
 
@@ -251,15 +261,17 @@ El detalle está en [docs/arquitectura.md](docs/arquitectura.md#api-rest).
 
 ## Colección de Postman
 
-[`postman/FixtureHub.postman_collection.json`](postman/FixtureHub.postman_collection.json) es un recorrido completo del torneo: 84 requests en orden, cada uno con sus verificaciones. El environment [`postman/FixtureHub.postman_environment.json`](postman/FixtureHub.postman_environment.json) tiene las variables `baseUrl` (`http://localhost:5065`, la misma con Docker Compose y con `dotnet run`), `adminUsername` y `adminPassword`.
+[`postman/FixtureHub.postman_collection.json`](postman/FixtureHub.postman_collection.json) es un recorrido completo del torneo: 86 requests en orden, cada uno con sus verificaciones. El environment [`postman/FixtureHub.postman_environment.json`](postman/FixtureHub.postman_environment.json) tiene las variables `baseUrl` (`http://localhost:5065`, la misma con Docker Compose y con `dotnet run`), `adminUsername` y `adminPassword`.
 
 1. Importa los dos archivos en Postman y elige el environment **FixtureHub local**.
-2. Completa `adminPassword` con `Admin__Password` del `.env` (o la contraseña de user-secrets). Se deja vacía en el repositorio y un test lo verifica.
+2. `adminPassword` ya trae la contraseña de demo del compose (un test impide que tenga otra). Si levantaste con tu propio `.env` o con `dotnet run` (user-secrets), cámbiala en el environment.
 3. Corre la colección completa con el Runner, o desde la terminal con [Newman](https://github.com/postmanlabs/newman):
 
 ```bash
-npx newman@6.2.2 run postman/FixtureHub.postman_collection.json -e postman/FixtureHub.postman_environment.json --env-var "adminPassword=<la contraseña>"
+npx newman@6.2.2 run postman/FixtureHub.postman_collection.json -e postman/FixtureHub.postman_environment.json
 ```
+
+Con otra contraseña, agrega `--env-var "adminPassword=<la contraseña>"`.
 
 | Carpeta | Qué recorre |
 |---|---|
@@ -271,7 +283,7 @@ npx newman@6.2.2 run postman/FixtureHub.postman_collection.json -e postman/Fixtu
 | 6. Reportes | Tabla de posiciones (verifica puntos, diferencia de gol y el orden) y goleadores |
 | 7. Filtros y paginación | Páginas que no se repiten, página fuera de rango, filtros por país, estado, equipo y fechas, orden dinámico |
 | 8. Idempotencia | Clave nueva, repetición con `Idempotent-Replayed`, clave reusada con otro body (409), sin clave y clave demasiado larga (400) |
-| 9. Errores | 400 de validación, JSON mal formado y lista blanca de `sortBy`; 401; 404 con `traceparent` propio; 409 por nombre, dorsal, horario, estado del partido y equipo con partidos pendientes |
+| 9. Errores | 400 de validación, JSON mal formado y lista blanca de `sortBy`; 401; 404 con `traceparent` propio; 404 de una ruta inexistente y 405 con su `errorCode`; 409 por nombre, dorsal, horario, estado del partido y equipo con partidos pendientes |
 | 10. Limpieza | Borra lo creado (borrado lógico): los equipos salen de la tabla y sus partidos quedan en el historial |
 
 En **todas** las respuestas, un script de la colección verifica el header `X-Trace-Id`; en los errores, que sean ProblemDetails con `errorCode` y el mismo `traceId`; y en los listados, el contrato de paginación. Cada corrida usa un sufijo propio en los nombres y termina borrando lo que creó, así que se puede correr varias veces sobre la misma base. Un test de integración exige que cada endpoint de la Api tenga su request en la colección.

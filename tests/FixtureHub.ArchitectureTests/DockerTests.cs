@@ -46,20 +46,45 @@ public partial class DockerTests
     }
 
     [Fact]
-    public void Compose_TakesEverySecretFromARequiredVariable()
+    public void Compose_TakesEverySecretFromAVariableWithADemoDefault()
     {
         var compose = File.ReadAllText(Repository.File(ComposeFile));
 
         var secrets = SecretVariables
-            .Select(name => Regex.Match(compose, $@"^\s*{name}:\s*(?<value>.+)$", RegexOptions.Multiline))
+            .Select(name => Regex.Match(compose, $@"^\s*{name}:\s*(?<value>\S+)\s*$", RegexOptions.Multiline))
             .Append(Regex.Match(compose, "Password=(?<value>[^;]+);"))
             .ToList();
 
         Assert.All(secrets, secret =>
         {
             Assert.True(secret.Success, $"{ComposeFile} no define uno de los secretos esperados.");
-            Assert.Matches(@"^\$\{\w+:\?", secret.Groups["value"].Value);
+            Assert.Matches(@"^\$\{\w+:-[^}]+\}$", secret.Groups["value"].Value);
         });
+    }
+
+    [Fact]
+    public void Compose_GivesSqlServerAndTheApiTheSameDemoPassword()
+    {
+        var defaults = DemoDefault().Matches(File.ReadAllText(Repository.File(ComposeFile)))
+            .Where(match => match.Groups["name"].Value == "SQLSERVER_SA_PASSWORD")
+            .Select(match => match.Groups["value"].Value)
+            .ToList();
+
+        Assert.Equal(2, defaults.Count);
+        Assert.Single(defaults.Distinct());
+    }
+
+    [Fact]
+    public void Readme_DocumentsEveryDemoValueOfTheCompose()
+    {
+        var defaults = DemoDefault().Matches(File.ReadAllText(Repository.File(ComposeFile)))
+            .Select(match => match.Groups["value"].Value)
+            .Distinct()
+            .ToList();
+        var readme = File.ReadAllText(Repository.File("README.md"));
+
+        Assert.Contains("admin", defaults);
+        Assert.All(defaults, value => Assert.Contains($"`{value}`", readme, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -118,6 +143,9 @@ public partial class DockerTests
 
     [GeneratedRegex(@"(?<!\$)\$\{(?<name>\w+)")]
     private static partial Regex ComposeVariable();
+
+    [GeneratedRegex(@"(?<!\$)\$\{(?<name>\w+):-(?<value>[^}]+)\}")]
+    private static partial Regex DemoDefault();
 
     [GeneratedRegex(@"^\s*image:\s*(?<image>\S+)\s*$", RegexOptions.Multiline)]
     private static partial Regex ComposeImage();
