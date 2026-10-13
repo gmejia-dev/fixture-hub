@@ -307,8 +307,8 @@ dotnet test tests/FixtureHub.ArchitectureTests
 | Proyecto | Tests | Qué cubre |
 |---|---|---|
 | `FixtureHub.UnitTests` | 306 | Dominio (reglas del partido, tabla, `Result`), handlers, validadores y decorators con fakes escritos a mano |
-| `FixtureHub.IntegrationTests` | 200 | SQL Server real en Docker: EF Core, Unit of Work, idempotencia (incluidas las carreras), lecturas con Dapper, seed, la Api por HTTP, autorización, logs y trazas |
-| `FixtureHub.ArchitectureTests` | 56 | Reglas de dependencia entre capas, visibilidad, convenciones, secretos fuera del repositorio, Docker, catálogos del frontend, Postman y documentación |
+| `FixtureHub.IntegrationTests` | 204 | SQL Server real en Docker: EF Core, Unit of Work, idempotencia (incluidas las carreras), lecturas con Dapper, seed, la Api por HTTP, autorización, logs y trazas |
+| `FixtureHub.ArchitectureTests` | 65 | Reglas de dependencia entre capas, CQRS (las queries no usan el lado de escritura ni los commands el de lectura), `SaveChanges` solo en el Unit of Work, visibilidad, convenciones, secretos fuera del repositorio, Docker, catálogos del frontend, Postman y documentación |
 | `frontend` (Vitest) | 64 | Traducción, catálogos, errores de la Api, idioma, fechas, paginación, redirecciones y token |
 
 Las pruebas mínimas que pide el enunciado:
@@ -320,7 +320,7 @@ Las pruebas mínimas que pide el enunciado:
 | Diferencia de gol | `TeamStandingTests.RecordResult_AddsTheGoalsAndTheGoalDifference`; el orden por diferencia, en `StandingsQueryTests` |
 | Result Pattern | `ResultTests` y `ErrorTests`; `ProblemMappingTests` (de `Result` a 400, 404 y 409) |
 | Idempotencia | `IdempotencyDecoratorTests` (unitarios: clave nueva, repetición, otra huella, vencida, en curso, por usuario); contra SQL Server, `IdempotencyTests`, `IdempotencyKeyFilterTests` y `ExpiredIdempotencyRecordsCleanupTests` |
-| Commit del Unit of Work | `TransactionDecoratorTests` (commit si el handler sale bien; rollback si falla, si lanza o si el commit falla); contra SQL Server, `UnitOfWorkTests` |
+| Commit del Unit of Work | `TransactionDecoratorTests` (commit si el handler sale bien; rollback si falla, si lanza o si el commit falla); contra SQL Server, `UnitOfWorkTests`; y `PersistenceTests`, que lee el código compilado y exige que el único tipo que llama a `SaveChanges` sea `UnitOfWork` |
 
 Los tests de arquitectura incluyen `FrontendCatalogTests`: por reflexión, cada código de error de la Api debe tener su traducción en los catálogos del frontend (`frontend/src/i18n/messages/es.json` y `en.json`).
 
